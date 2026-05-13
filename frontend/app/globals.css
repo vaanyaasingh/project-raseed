@@ -1,4 +1,184 @@
-/* Global Tailwind CSS directives */
+/* ── Fonts ─────────────────────────────────────────────────────────────────── */
+@import url('https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:wght@400;500;600;700;800&family=Hind:wght@400;500;600;700&family=JetBrains+Mono:wght@400;500&display=swap');
+
 @tailwind base;
 @tailwind components;
 @tailwind utilities;
+
+/* ── Design tokens ─────────────────────────────────────────────────────────── */
+:root {
+  --primary:   #3D4FB8;
+  --primary-h: #3340A0;  /* hover */
+  --primary-50: #EEF0FB;
+
+  --accent:    #E08B3C;
+  --accent-50: #FBF1E4;
+
+  --success:   #3F8A5C;
+  --success-50: #ECF4EF;
+
+  --danger:    #B5443A;
+  --danger-50: #F8E9E7;
+
+  --surface:   #FCFAF4;
+  --bg:        #FAF7F1;
+  --bg-2:      #F2EDE3;
+  --bg-3:      #E8E1D2;
+
+  --ink:       #1A1D29;
+  --ink-2:     #5C606E;
+  --ink-3:     #A2A5B0;
+
+  --border:    #E5DFD2;
+  --border-strong: #C9C2B2;
+
+  --shadow-sm: 0 1px 2px rgba(26,29,41,0.06), 0 0 0 1px rgba(26,29,41,0.03);
+  --shadow-md: 0 4px 16px rgba(26,29,41,0.08), 0 1px 2px rgba(26,29,41,0.04);
+  --shadow-lg: 0 12px 40px rgba(26,29,41,0.12), 0 2px 8px rgba(26,29,41,0.06);
+
+  --radius-sm: 6px;
+  --radius-md: 8px;
+  --radius-lg: 12px;
+  --radius-xl: 16px;
+
+  --ease: cubic-bezier(0.2, 0.8, 0.2, 1);
+  --dur-fast: 150ms;
+  --dur-mid:  250ms;
+}
+
+/* ── Base ──────────────────────────────────────────────────────────────────── */
+@layer base {
+  html, body {
+    font-family: 'Plus Jakarta Sans', system-ui, -apple-system, sans-serif;
+    font-size: 16px;
+    line-height: 1.5;
+    color: var(--ink);
+    background: var(--bg);
+    -webkit-font-smoothing: antialiased;
+    text-rendering: optimizeLegibility;
+  }
+
+  /* Tabular numerals for all monetary/numeric display */
+  .num, [data-num] {
+    font-variant-numeric: tabular-nums;
+    font-feature-settings: 'tnum' 1;
+  }
+
+  code, kbd, .mono {
+    font-family: 'JetBrains Mono', ui-monospace, monospace;
+    font-size: 0.9em;
+  }
+
+  * { box-sizing: border-box; }
+
+  /* Smooth scroll */
+  html { scroll-behavior: smooth; }
+
+  /* Global input/textarea focus ring */
+  input:focus-visible,
+  textarea:focus-visible,
+  select:focus-visible {
+    outline: 2px solid var(--primary);
+    outline-offset: 0px;
+  }
+
+  /* Remove default button font */
+  button { font-family: inherit; }
+
+  /* Scrollbar style */
+  ::-webkit-scrollbar { width: 6px; height: 6px; }
+  ::-webkit-scrollbar-track { background: transparent; }
+  ::-webkit-scrollbar-thumb { background: var(--bg-3); border-radius: 99px; }
+  ::-webkit-scrollbar-thumb:hover { background: var(--border-strong); }
+}
+
+/* ── Reusable component layer ─────────────────────────────────────────────── */
+@layer components {
+  .card {
+    background: var(--surface);
+    border: 1px solid var(--border);
+    border-radius: var(--radius-lg);
+    box-shadow: var(--shadow-sm);
+  }
+
+  .card-hover {
+    transition: box-shadow var(--dur-fast) var(--ease), border-color var(--dur-fast) var(--ease);
+  }
+  .card-hover:hover {
+    box-shadow: var(--shadow-md);
+    border-color: var(--border-strong);
+  }
+
+  .btn-primary {
+    background: var(--primary);
+    color: #FCFAF4;
+    border-radius: var(--radius-md);
+    font-weight: 600;
+    font-size: 14px;
+    padding: 10px 18px;
+    transition: background var(--dur-fast) var(--ease), transform var(--dur-fast) var(--ease);
+    cursor: pointer;
+    border: none;
+    display: inline-flex;
+    align-items: center;
+    gap: 8px;
+    text-decoration: none;
+  }
+  .btn-primary:hover  { background: var(--primary-h); }
+  .btn-primary:active { transform: scale(0.97); }
+
+  .btn-ghost {
+    background: transparent;
+    color: var(--ink-2);
+    border: 1px solid var(--border);
+    border-radius: var(--radius-md);
+    font-weight: 500;
+    font-size: 14px;
+    padding: 9px 16px;
+    transition: background var(--dur-fast) var(--ease), border-color var(--dur-fast) var(--ease), color var(--dur-fast) var(--ease);
+    cursor: pointer;
+    display: inline-flex;
+    align-items: center;
+    gap: 8px;
+    text-decoration: none;
+  }
+  .btn-ghost:hover {
+    background: var(--bg-2);
+    border-color: var(--border-strong);
+    color: var(--ink);
+  }
+
+  .badge {
+    display: inline-flex;
+    align-items: center;
+    gap: 4px;
+    padding: 2px 8px;
+    border-radius: 999px;
+    font-size: 12px;
+    font-weight: 600;
+    letter-spacing: 0.02em;
+  }
+
+  .nav-link {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    padding: 9px 12px;
+    border-radius: var(--radius-md);
+    font-size: 14px;
+    font-weight: 500;
+    color: var(--ink-2);
+    text-decoration: none;
+    transition: background var(--dur-fast) var(--ease), color var(--dur-fast) var(--ease);
+  }
+  .nav-link:hover {
+    background: var(--bg-2);
+    color: var(--ink);
+    border-bottom: none;
+  }
+  .nav-link.active {
+    background: var(--primary-50);
+    color: var(--primary);
+    font-weight: 600;
+  }
+}

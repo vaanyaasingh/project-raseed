@@ -18,6 +18,7 @@ CREATE TABLE IF NOT EXISTS uploads (
     filename     TEXT NOT NULL,
     doc_type     TEXT NOT NULL CHECK(doc_type IN ('gst_notice', 'invoice', 'bank_statement')),
     extracted_text TEXT,
+    user_id      TEXT,
     created_at   TIMESTAMP DEFAULT CURRENT_TIMESTAMP
 );
 
@@ -34,7 +35,9 @@ CREATE TABLE IF NOT EXISTS invoices (
     invoice_type   TEXT CHECK(invoice_type IN ('received', 'issued')),
     raw_json       TEXT,
     upload_id      TEXT REFERENCES uploads(id),
-    created_at     TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+    user_id        TEXT,
+    created_at     TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+    sent_at        TIMESTAMP
 );
 
 CREATE TABLE IF NOT EXISTS transactions (
@@ -56,6 +59,23 @@ CREATE TABLE IF NOT EXISTS agent_logs (
     success        INTEGER NOT NULL DEFAULT 0 CHECK(success IN (0, 1)),
     error_message  TEXT,
     created_at     TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+);
+
+CREATE TABLE IF NOT EXISTS analysis_results (
+    upload_id   TEXT NOT NULL,
+    query_type  TEXT NOT NULL,
+    result_json TEXT NOT NULL,
+    created_at  TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+    PRIMARY KEY (upload_id, query_type)
+);
+
+CREATE TABLE IF NOT EXISTS user_profiles (
+    user_id       TEXT PRIMARY KEY,
+    name          TEXT,
+    phone         TEXT,
+    business_name TEXT,
+    gstin         TEXT,
+    updated_at    TIMESTAMP DEFAULT CURRENT_TIMESTAMP
 );
 """
 
@@ -87,6 +107,28 @@ def init_db() -> None:
     conn = get_db()
     try:
         conn.executescript(_SCHEMA)
-        conn.commit()
+        # Migrate existing databases that predate added columns
+        migrations = [
+            "ALTER TABLE invoices ADD COLUMN sent_at TIMESTAMP",
+            "ALTER TABLE uploads ADD COLUMN user_id TEXT",
+            "ALTER TABLE invoices ADD COLUMN user_id TEXT",
+            (
+                "CREATE TABLE IF NOT EXISTS analysis_results ("
+                "upload_id TEXT NOT NULL, query_type TEXT NOT NULL, "
+                "result_json TEXT NOT NULL, created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP, "
+                "PRIMARY KEY (upload_id, query_type))"
+            ),
+            (
+                "CREATE TABLE IF NOT EXISTS user_profiles ("
+                "user_id TEXT PRIMARY KEY, name TEXT, phone TEXT, "
+                "business_name TEXT, gstin TEXT, updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP)"
+            ),
+        ]
+        for migration in migrations:
+            try:
+                conn.execute(migration)
+                conn.commit()
+            except Exception:
+                pass  # column already exists — safe to ignore
     finally:
         conn.close()

@@ -107,6 +107,15 @@ class InvoiceSendRequest(BaseModel):
     message: str
 
 
+# ── Profile ───────────────────────────────────────────────────────────────────
+
+class ProfileUpdateRequest(BaseModel):
+    name: Optional[str] = None
+    phone: Optional[str] = None
+    business_name: Optional[str] = None
+    gstin: Optional[str] = None
+
+
 # ── Error response ────────────────────────────────────────────────────────────
 
 class ErrorResponse(BaseModel):
