@@ -76,33 +76,25 @@ Use CGST+SGST for intra-state (same state code in both GSTINs), IGST for inter-s
 If GSTINs are not provided, default to CGST+SGST. All amounts in INR."""
 
 
-# ── Helper: persist to SQLite ────────────────────────────────────────────────
+# ── Helper: persist to Supabase ──────────────────────────────────────────────
 
 def _save_invoice(invoice_id: str, parsed: dict, upload_id: str | None = None) -> None:
     try:
-        from db.database import db_conn
-        with db_conn() as conn:
-            conn.execute(
-                """INSERT INTO invoices
-                   (id, invoice_number, invoice_date, vendor_name, vendor_gstin,
-                    buyer_name, buyer_gstin, grand_total, total_gst, invoice_type,
-                    raw_json, upload_id)
-                   VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""",
-                (
-                    invoice_id,
-                    parsed.get("invoice_number"),
-                    parsed.get("invoice_date"),
-                    parsed.get("vendor_name"),
-                    parsed.get("vendor_gstin"),
-                    parsed.get("buyer_name"),
-                    parsed.get("buyer_gstin"),
-                    parsed.get("grand_total"),
-                    parsed.get("total_gst"),
-                    parsed.get("invoice_type"),
-                    json.dumps(parsed),
-                    upload_id,
-                ),
-            )
+        from db.supabase_client import supabase
+        supabase.table("invoices").upsert({
+            "id": invoice_id,
+            "invoice_number": parsed.get("invoice_number"),
+            "invoice_date": parsed.get("invoice_date"),
+            "vendor_name": parsed.get("vendor_name"),
+            "vendor_gstin": parsed.get("vendor_gstin"),
+            "buyer_name": parsed.get("buyer_name"),
+            "buyer_gstin": parsed.get("buyer_gstin"),
+            "grand_total": parsed.get("grand_total"),
+            "total_gst": parsed.get("total_gst"),
+            "invoice_type": parsed.get("invoice_type"),
+            "raw_json": parsed,
+            "upload_id": upload_id,
+        }).execute()
     except Exception:
         pass  # logging failure must never crash the agent
 

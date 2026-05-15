@@ -2,7 +2,7 @@
 
 import { supabase } from "./supabase";
 
-const BASE = `${process.env.NEXT_PUBLIC_API_URL ?? "http://localhost:8000"}/api/v1`;
+export const BASE = `${process.env.NEXT_PUBLIC_API_URL ?? "http://localhost:8000"}/api/v1`;
 
 async function waitForSession() {
   let session = (await supabase.auth.getSession()).data.session;
@@ -394,14 +394,14 @@ export interface ProfileUpdateRequest {
 }
 
 export async function getProfile(): Promise<UserProfile> {
-  return request<UserProfile>("/profile", {
+  return request<UserProfile>("/users/profile", {
     headers: await getAuthHeaders(),
   });
 }
 
 export async function updateProfile(data: ProfileUpdateRequest): Promise<void> {
-  await request<{ ok: boolean }>("/profile", {
-    method: "PUT",
+  await request<{ ok: boolean }>("/users/profile", {
+    method: "POST",
     headers: await getAuthHeaders(),
     body: JSON.stringify(data),
   });
@@ -417,9 +417,59 @@ export interface UploadRecord {
 }
 
 export async function listUploads(limit = 10): Promise<UploadRecord[]> {
-  const res = await request<{ uploads: UploadRecord[] }>(
+  const res = await request<{ uploads: Array<UploadRecord & { file_type?: string }> }>(
     `/upload/list?limit=${limit}`,
     { headers: await getAuthHeaders() },
   );
-  return res.uploads;
+  // Backend returns `file_type` (Supabase column name); normalise to `doc_type`
+  return (res.uploads ?? []).map((u) => ({
+    ...u,
+    doc_type: (u.doc_type ?? u.file_type) as UploadRecord["doc_type"],
+  }));
+}
+
+export async function deleteUpload(uploadId: string): Promise<void> {
+  await request<{ deleted: boolean }>(`/upload/${uploadId}`, {
+    method: "DELETE",
+    headers: await getAuthHeaders(),
+  });
+}
+
+// ── Letterhead ────────────────────────────────────────────────────────────────
+
+export async function uploadLetterhead(file: File): Promise<void> {
+  const headers = await getAuthHeaders();
+  const form = new FormData();
+  form.append("file", file);
+  const res = await fetch(`${BASE}/users/letterhead`, {
+    method: "POST",
+    headers: { Authorization: (headers as Record<string, string>).Authorization },
+    body: form,
+  });
+  if (!res.ok) {
+    const err = await res.json().catch(() => ({}));
+    throw new ApiError(res.status, err?.detail?.code ?? "UPLOAD_ERROR", err?.detail?.message ?? "Letterhead upload failed");
+  }
+}
+
+export async function deleteLetterhead(): Promise<void> {
+  await request<{ ok: boolean }>("/users/letterhead", {
+    method: "DELETE",
+    headers: await getAuthHeaders(),
+  });
+}
+
+// ── Invoice PDF download ───────────────────────────────────────────────────────
+
+export async function downloadInvoicePdf(invoiceId: string, filename = "invoice.pdf"): Promise<void> {
+  const headers = await getAuthHeaders();
+  const res = await fetch(`${BASE}/invoices/${invoiceId}/pdf`, { headers });
+  if (!res.ok) throw new Error("Could not generate PDF");
+  const blob = await res.blob();
+  const url = URL.createObjectURL(blob);
+  const a = document.createElement("a");
+  a.href = url;
+  a.download = filename;
+  a.click();
+  URL.revokeObjectURL(url);
 }

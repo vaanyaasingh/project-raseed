@@ -179,6 +179,7 @@ const docTypeConfig: Record<UploadRecord["doc_type"], { label: string; iconPath:
 
 function UploadItem({ upload }: { upload: UploadRecord }) {
   const cfg = docTypeConfig[upload.doc_type];
+  if (!cfg) return null; // unknown doc_type — skip rendering
   return (
     <Link
       href={`${cfg.href}?upload_id=${upload.id}`}

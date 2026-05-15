@@ -4,7 +4,7 @@ import json
 import os
 import uuid
 import re
-from datetime import datetime
+import time
 
 from dotenv import load_dotenv
 from google import genai
@@ -39,14 +39,16 @@ class AgentParseError(Exception):
 
 def _log(agent: str, input_summary: str, raw_output: str, parsed_output: str, success: bool, error: str = "") -> None:
     try:
-        from db.database import db_conn
-        with db_conn() as conn:
-            conn.execute(
-                """INSERT INTO agent_logs
-                   (id, agent, input_summary, raw_llm_output, parsed_output, success, error_message)
-                   VALUES (?, ?, ?, ?, ?, ?, ?)""",
-                (str(uuid.uuid4()), agent, input_summary, raw_output, parsed_output, 1 if success else 0, error),
-            )
+        from db.supabase_client import supabase
+        supabase.table("agent_logs").insert({
+            "id": str(uuid.uuid4()),
+            "agent": agent,
+            "input_summary": input_summary,
+            "raw_llm_output": raw_output,
+            "parsed_output": parsed_output,
+            "success": success,
+            "error_message": error,
+        }).execute()
     except Exception:
         pass  # never crash the caller because of a logging failure
 
@@ -80,13 +82,25 @@ def call_gemini(prompt: str, expect_json: bool = True, agent: str = "gemini_clie
 
     def _call(p: str) -> str:
         # Use SIGALRM for a hard wall-clock timeout (Unix only).
-        signal.signal(signal.SIGALRM, _timeout_handler)
-        signal.alarm(timeout_secs)
-        try:
-            response = client.models.generate_content(model=_MODEL, contents=p)
-            return response.text
-        finally:
-            signal.alarm(0)
+        # Retry up to 3 times on 429 rate-limit errors with exponential backoff.
+        max_retries = 3
+        for attempt in range(max_retries):
+            signal.signal(signal.SIGALRM, _timeout_handler)
+            signal.alarm(timeout_secs)
+            try:
+                response = client.models.generate_content(model=_MODEL, contents=p)
+                return response.text
+            except Exception as exc:
+                signal.alarm(0)
+                err_str = str(exc)
+                if "429" in err_str or "RESOURCE_EXHAUSTED" in err_str:
+                    if attempt < max_retries - 1:
+                        wait = 60 * (attempt + 1)  # 60s, 120s
+                        time.sleep(wait)
+                        continue
+                raise
+            finally:
+                signal.alarm(0)
 
     # ── First attempt ────────────────────────────────────────────────────────
     try:

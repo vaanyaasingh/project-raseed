@@ -1,17 +1,13 @@
 "use client";
 
-import { Suspense, useCallback, useEffect, useRef, useState } from "react";
-import { useRouter, useSearchParams } from "next/navigation";
+import { Suspense, useCallback, useEffect, useState } from "react";
+import { useSearchParams } from "next/navigation";
+import Link from "next/link";
 import UploadCard from "@/components/UploadCard";
 import {
   uploadDocument,
   uploadBankStatement,
-  queryGSTNotice,
-  queryFinance,
-  extractInvoice,
   ApiError,
-  type UploadResponse,
-  type BankStatementUploadResponse,
 } from "@/lib/api";
 
 // ── Types ──────────────────────────────────────────────────────────────────
@@ -27,7 +23,33 @@ interface DocTypeConfig {
   icon: React.ReactNode;
 }
 
-// ── Inline SVG icons ───────────────────────────────────────────────────────
+// Extended upload result that includes the new inline analysis
+interface UploadWithAnalysis {
+  upload_id: string;
+  filename: string;
+  doc_type?: string;
+  status?: string;
+  analysis?: {
+    agents_invoked: string[];
+    responses: Array<{
+      agent: string;
+      summary: string;
+      structured_data: Record<string, unknown>;
+      action_items: string[];
+      confidence: number;
+      raw_llm_output: string;
+    }>;
+    integrated_insight: string | null;
+  };
+  todo_items?: Array<{ task: string; deadline?: string; priority?: string }>;
+  // bank_statement extras
+  rows_parsed?: number;
+  date_range?: { start: string; end: string };
+  // pdf extras
+  extracted_text_preview?: string;
+}
+
+// ── Inline SVG helper ──────────────────────────────────────────────────────
 
 function Svg({ d, size = 24 }: { d: string | string[]; size?: number }) {
   const paths = Array.isArray(d) ? d : [d];
@@ -58,9 +80,9 @@ const DOC_TYPES: Record<DocType, DocTypeConfig> = {
   },
   bank_statement: {
     label: "Bank Statement",
-    hint: "Export a CSV from your bank and upload it for a cash flow report.",
-    accept: ".csv",
-    acceptLabel: "CSV file",
+    hint: "Upload a CSV export or PDF statement from your bank for a cash flow report.",
+    accept: ".csv,.pdf",
+    acceptLabel: "CSV or PDF",
     resultPath: "/finance",
     icon: <Svg d={["M4 6h16", "M4 10h16", "M4 14h8"]} />,
   },
@@ -71,17 +93,14 @@ const DOC_TYPES: Record<DocType, DocTypeConfig> = {
 function Step({ n, label, active, done }: { n: number; label: string; active: boolean; done: boolean }) {
   return (
     <div className="flex items-center gap-2">
-      <div
-        style={{
-          width: 28, height: 28,
-          borderRadius: "50%",
-          display: "flex", alignItems: "center", justifyContent: "center",
-          fontSize: 13, fontWeight: 700,
-          background: done ? "var(--success)" : active ? "var(--primary)" : "var(--bg-3)",
-          color: done || active ? "#FCFAF4" : "var(--ink-3)",
-          transition: "background 200ms var(--ease)",
-        }}
-      >
+      <div style={{
+        width: 28, height: 28, borderRadius: "50%",
+        display: "flex", alignItems: "center", justifyContent: "center",
+        fontSize: 13, fontWeight: 700,
+        background: done ? "var(--success)" : active ? "var(--primary)" : "var(--bg-3)",
+        color: done || active ? "#FCFAF4" : "var(--ink-3)",
+        transition: "background 200ms var(--ease)",
+      }}>
         {done ? (
           <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="3" strokeLinecap="round" strokeLinejoin="round">
             <path d="M20 6L9 17l-5-5" />
@@ -91,56 +110,6 @@ function Step({ n, label, active, done }: { n: number; label: string; active: bo
       <span style={{ fontSize: 13, fontWeight: active ? 600 : 400, color: active ? "var(--ink)" : "var(--ink-3)" }}>
         {label}
       </span>
-    </div>
-  );
-}
-
-// ── Preview panel ──────────────────────────────────────────────────────────
-
-function TextPreview({ text }: { text: string }) {
-  const [expanded, setExpanded] = useState(false);
-  const preview = text.slice(0, 300);
-  const hasMore = text.length > 300;
-
-  return (
-    <div
-      style={{
-        background: "var(--bg-3)",
-        borderRadius: "var(--radius-md)",
-        padding: "12px 14px",
-        fontFamily: "'JetBrains Mono', monospace",
-        fontSize: 12,
-        color: "var(--ink-2)",
-        lineHeight: 1.6,
-        whiteSpace: "pre-wrap",
-        wordBreak: "break-word",
-        maxHeight: expanded ? "none" : 140,
-        overflow: "hidden",
-        position: "relative",
-      }}
-    >
-      {expanded ? text : preview}
-      {hasMore && !expanded && (
-        <div
-          style={{
-            position: "absolute", bottom: 0, left: 0, right: 0,
-            height: 48,
-            background: "linear-gradient(transparent, var(--bg-3))",
-            display: "flex", alignItems: "flex-end", justifyContent: "center",
-            paddingBottom: 8,
-          }}
-        >
-          <button
-            onClick={() => setExpanded(true)}
-            style={{
-              fontSize: 12, color: "var(--primary)", fontWeight: 600,
-              background: "none", border: "none", cursor: "pointer",
-            }}
-          >
-            Show more
-          </button>
-        </div>
-      )}
     </div>
   );
 }
@@ -160,55 +129,210 @@ function Spinner({ size = 20 }: { size?: number }) {
   );
 }
 
+// ── Inline result summary ──────────────────────────────────────────────────
+
+function ResultSummary({ result, docType }: { result: UploadWithAnalysis; docType: DocType }) {
+  const analysis = result.analysis;
+  const config   = DOC_TYPES[docType];
+
+  // Pull agent-specific data
+  const gstAgent     = analysis?.responses.find((r) => r.agent === "gst_tax_agent");
+  const finAgent     = analysis?.responses.find((r) => r.agent === "finance_agent");
+  const invoiceAgent = analysis?.responses.find((r) => r.agent === "invoice_agent");
+
+  const finData   = (finAgent?.structured_data   ?? {}) as Record<string, unknown>;
+  const invData   = (invoiceAgent?.structured_data ?? {}) as Record<string, unknown>;
+
+  const todoCount = result.todo_items?.length ?? 0;
+  const anomalyCount = ((finData.anomalies ?? []) as unknown[]).length;
+
+  return (
+    <div style={{
+      background: "var(--surface)", border: "1px solid var(--border)",
+      borderRadius: "var(--radius-lg)", boxShadow: "var(--shadow-sm)",
+      overflow: "hidden",
+    }}>
+      {/* Success header */}
+      <div style={{
+        background: "var(--success-50)", borderBottom: "1px solid #A6CBB5",
+        padding: "12px 16px", display: "flex", alignItems: "center", gap: 10,
+      }}>
+        <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="var(--success)" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round">
+          <path d="M20 6L9 17l-5-5" />
+        </svg>
+        <span style={{ fontWeight: 600, fontSize: 14, color: "var(--success)" }}>
+          Upload and analysis complete
+        </span>
+      </div>
+
+      {/* Summary content */}
+      <div style={{ padding: "16px 18px" }} className="space-y-4">
+        {/* File info */}
+        <div style={{ fontSize: 13, color: "var(--ink-2)" }}>
+          <span style={{ fontWeight: 600, color: "var(--ink)" }}>{result.filename}</span>
+          {result.rows_parsed && (
+            <span style={{ marginLeft: 8 }}>
+              · {result.rows_parsed} transactions · {result.date_range?.start} → {result.date_range?.end}
+            </span>
+          )}
+        </div>
+
+        {/* Doc-type specific summary */}
+        {docType === "gst_notice" && (
+          <div className="space-y-3">
+            {(analysis?.integrated_insight ?? gstAgent?.summary) && (
+              <p style={{ fontSize: 14, color: "var(--ink)", lineHeight: 1.6 }}>
+                {analysis?.integrated_insight ?? gstAgent?.summary}
+              </p>
+            )}
+            {todoCount > 0 && (
+              <div style={{
+                display: "inline-flex", alignItems: "center", gap: 6,
+                padding: "4px 12px", borderRadius: 999,
+                background: "var(--primary-50)", color: "var(--primary)",
+                fontSize: 13, fontWeight: 600,
+              }}>
+                {todoCount} action item{todoCount !== 1 ? "s" : ""} identified
+              </div>
+            )}
+          </div>
+        )}
+
+        {docType === "bank_statement" && (
+          <div className="space-y-3">
+            {finData.health_score !== undefined && (
+              <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
+                <div style={{
+                  width: 52, height: 52, borderRadius: "50%",
+                  background: (finData.health_score as number) > 7 ? "var(--success-50)" : (finData.health_score as number) >= 4 ? "#FBF1E4" : "var(--danger-50)",
+                  border: `2px solid ${(finData.health_score as number) > 7 ? "var(--success)" : (finData.health_score as number) >= 4 ? "var(--accent)" : "var(--danger)"}`,
+                  display: "flex", flexDirection: "column", alignItems: "center", justifyContent: "center",
+                }}>
+                  <span className="num" style={{
+                    fontSize: 22, fontWeight: 800, lineHeight: 1,
+                    color: (finData.health_score as number) > 7 ? "var(--success)" : (finData.health_score as number) >= 4 ? "var(--accent)" : "var(--danger)",
+                  }}>
+                    {finData.health_score as number}
+                  </span>
+                  <span style={{ fontSize: 9, fontWeight: 600, opacity: 0.7, color: "var(--ink-3)" }}>/10</span>
+                </div>
+                <div>
+                  <div style={{ fontSize: 14, fontWeight: 600, color: "var(--ink)" }}>
+                    Cash flow health score
+                  </div>
+                  {anomalyCount > 0 && (
+                    <div style={{ fontSize: 13, color: "var(--accent)", marginTop: 2 }}>
+                      {anomalyCount} anomal{anomalyCount !== 1 ? "ies" : "y"} detected
+                    </div>
+                  )}
+                </div>
+              </div>
+            )}
+            {finAgent?.summary && (
+              <p style={{ fontSize: 13, color: "var(--ink-2)", lineHeight: 1.5 }}>
+                {finAgent.summary}
+              </p>
+            )}
+          </div>
+        )}
+
+        {docType === "invoice" && (
+          <div style={{
+            background: "var(--bg-2)", borderRadius: "var(--radius-md)",
+            padding: "12px 14px",
+          }} className="space-y-2">
+            {[
+              ["Invoice number", invData.invoice_number as string],
+              ["Vendor",         invData.vendor_name    as string],
+              ["Grand total",    invData.grand_total !== undefined ? `₹${(invData.grand_total as number).toLocaleString("en-IN")}` : undefined],
+            ].filter(([, v]) => v).map(([label, value]) => (
+              <div key={label as string} style={{ display: "flex", gap: 12, fontSize: 13 }}>
+                <span style={{ color: "var(--ink-3)", width: 120, flexShrink: 0 }}>{label as string}</span>
+                <span style={{ color: "var(--ink)", fontWeight: 500 }}>{value as string}</span>
+              </div>
+            ))}
+            {invoiceAgent?.summary && (
+              <p style={{ fontSize: 13, color: "var(--ink-2)", lineHeight: 1.5, marginTop: 8, paddingTop: 8, borderTop: "1px solid var(--border)" }}>
+                {invoiceAgent.summary}
+              </p>
+            )}
+          </div>
+        )}
+      </div>
+
+      {/* View full analysis CTA */}
+      <div style={{ padding: "12px 18px", borderTop: "1px solid var(--border)" }}>
+        <Link
+          href={
+            docType === "invoice"
+              ? `/invoices?upload_id=${result.upload_id}`
+              : config.resultPath
+          }
+          style={{
+            display: "inline-flex", alignItems: "center", gap: 8,
+            fontSize: 14, fontWeight: 600,
+            color: "var(--primary)", textDecoration: "none",
+          }}
+        >
+          View full analysis
+          <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round">
+            <path d="M5 12h14M12 5l7 7-7 7" />
+          </svg>
+        </Link>
+        <span style={{ fontSize: 12, color: "var(--ink-3)", marginLeft: 16 }}>
+          on the {config.label} page
+        </span>
+      </div>
+    </div>
+  );
+}
+
 // ── Main upload page ───────────────────────────────────────────────────────
 
 function UploadPageContent() {
-  const router = useRouter();
   const searchParams = useSearchParams();
 
   const initialType = (searchParams.get("type") as DocType) ?? "gst_notice";
-  const validTypes = Object.keys(DOC_TYPES) as DocType[];
+  const validTypes  = Object.keys(DOC_TYPES) as DocType[];
   const [docType, setDocType] = useState<DocType>(
     validTypes.includes(initialType) ? initialType : "gst_notice"
   );
 
-  const [file, setFile] = useState<File | null>(null);
-  const [uploading, setUploading] = useState(false);
-  const [analyzing, setAnalyzing] = useState(false);
-  const [uploadResult, setUploadResult] = useState<UploadResponse | BankStatementUploadResponse | null>(null);
-  const [error, setError] = useState<{ code: string; message: string } | null>(null);
+  const [file,         setFile]         = useState<File | null>(null);
+  const [processing,   setProcessing]   = useState(false);
+  const [result,       setResult]       = useState<UploadWithAnalysis | null>(null);
+  const [error,        setError]        = useState<{ code: string; message: string } | null>(null);
 
-  // Reset state when doc type changes
+  // Reset when doc type changes
   useEffect(() => {
     setFile(null);
-    setUploadResult(null);
+    setResult(null);
     setError(null);
   }, [docType]);
 
   const config = DOC_TYPES[docType];
-  const uploadId = uploadResult && "upload_id" in uploadResult ? uploadResult.upload_id : null;
 
-  // ── Step logic ─────────────────────────────────────────────────────────
+  // Step: 1 = choose type, 2 = upload, 3 = done
+  const step = !file ? 1 : !result ? 2 : 3;
 
-  const step = !file ? 1 : !uploadResult ? 2 : 3;
-
-  // ── Upload handler ────────────────────────────────────────────────────
+  // ── Upload + analyse (single shot) ────────────────────────────────────
 
   const handleFileSelect = useCallback(
     async (selectedFile: File) => {
       setFile(selectedFile);
-      setUploadResult(null);
+      setResult(null);
       setError(null);
-      setUploading(true);
+      setProcessing(true);
 
       try {
-        let result: UploadResponse | BankStatementUploadResponse;
+        let raw: unknown;
         if (docType === "bank_statement") {
-          result = await uploadBankStatement(selectedFile);
+          raw = await uploadBankStatement(selectedFile);
         } else {
-          result = await uploadDocument(selectedFile, docType);
+          raw = await uploadDocument(selectedFile, docType);
         }
-        setUploadResult(result);
+        // Cast to extended type — backend now returns analysis inline
+        setResult(raw as UploadWithAnalysis);
       } catch (e) {
         if (e instanceof ApiError) {
           setError({ code: e.code, message: e.message });
@@ -217,39 +341,11 @@ function UploadPageContent() {
         }
         setFile(null);
       } finally {
-        setUploading(false);
+        setProcessing(false);
       }
     },
     [docType]
   );
-
-  // ── Analyze handler ───────────────────────────────────────────────────
-
-  async function handleAnalyze() {
-    if (!uploadId) return;
-    setAnalyzing(true);
-    setError(null);
-
-    try {
-      if (docType === "gst_notice") {
-        await queryGSTNotice(uploadId);
-        router.push(`/compliance?upload_id=${uploadId}`);
-      } else if (docType === "bank_statement") {
-        await queryFinance(uploadId);
-        router.push(`/finance?upload_id=${uploadId}`);
-      } else {
-        await extractInvoice(uploadId);
-        router.push(`/invoices?upload_id=${uploadId}`);
-      }
-    } catch (e) {
-      if (e instanceof ApiError) {
-        setError({ code: e.code, message: e.message });
-      } else {
-        setError({ code: "UNKNOWN", message: "Analysis failed. Please try again." });
-      }
-      setAnalyzing(false);
-    }
-  }
 
   // ── Render ─────────────────────────────────────────────────────────────
 
@@ -268,21 +364,21 @@ function UploadPageContent() {
           Upload a document
         </h1>
         <p style={{ fontSize: 13, color: "var(--ink-2)", marginTop: 2 }}>
-          Upload a GST notice, invoice, or bank statement to start analysis.
+          Upload a GST notice, invoice, or bank statement — analysis runs automatically.
         </p>
       </header>
 
       <div className="px-6 py-8 max-w-2xl mx-auto space-y-8">
         {/* Step indicators */}
         <div className="flex items-center gap-4">
-          <Step n={1} label="Choose type" active={step === 1} done={step > 1} />
+          <Step n={1} label="Choose type"    active={step === 1} done={step > 1} />
           <div style={{ flex: 1, height: 1, background: "var(--border)" }} />
-          <Step n={2} label="Upload file" active={step === 2} done={step > 2} />
+          <Step n={2} label="Upload & analyse" active={step === 2} done={step > 2} />
           <div style={{ flex: 1, height: 1, background: "var(--border)" }} />
-          <Step n={3} label="Analyse" active={step === 3} done={false} />
+          <Step n={3} label="Results"          active={step === 3} done={false} />
         </div>
 
-        {/* Step 1 — Document type selector */}
+        {/* Step 1 — Document type */}
         <section>
           <h2 style={{ fontSize: 15, fontWeight: 700, color: "var(--ink)", marginBottom: 12 }}>
             1. What are you uploading?
@@ -299,18 +395,15 @@ function UploadPageContent() {
                     border: `2px solid ${active ? "var(--primary)" : "var(--border)"}`,
                     borderRadius: "var(--radius-lg)",
                     padding: "16px",
-                    cursor: "pointer",
-                    textAlign: "left",
+                    cursor: "pointer", textAlign: "left",
                     transition: "border-color 150ms var(--ease), background 150ms var(--ease)",
+                    fontFamily: "inherit",
                   }}
                 >
-                  <div
-                    style={{
-                      color: active ? "var(--primary)" : "var(--ink-2)",
-                      marginBottom: 8,
-                      transition: "color 150ms var(--ease)",
-                    }}
-                  >
+                  <div style={{
+                    color: active ? "var(--primary)" : "var(--ink-2)",
+                    marginBottom: 8, transition: "color 150ms var(--ease)",
+                  }}>
                     {cfg.icon}
                   </div>
                   <div style={{ fontWeight: 600, fontSize: 14, color: active ? "var(--primary)" : "var(--ink)" }}>
@@ -331,33 +424,31 @@ function UploadPageContent() {
             2. Upload your file
           </h2>
 
-          {uploading ? (
-            /* Upload in progress */
-            <div
-              style={{
-                background: "var(--surface)",
-                border: "2px dashed var(--border)",
-                borderRadius: "var(--radius-lg)",
-                padding: "48px 24px",
-                display: "flex",
-                flexDirection: "column",
-                alignItems: "center",
-                gap: 14,
-              }}
-            >
+          {processing ? (
+            /* Upload + analysis in progress */
+            <div style={{
+              background: "var(--surface)", border: "2px dashed var(--border)",
+              borderRadius: "var(--radius-lg)", padding: "48px 24px",
+              display: "flex", flexDirection: "column", alignItems: "center", gap: 14,
+            }}>
               <div style={{ color: "var(--primary)" }}>
-                <Spinner size={32} />
+                <Spinner size={36} />
               </div>
-              <div>
-                <div style={{ fontWeight: 600, fontSize: 15, color: "var(--ink)", textAlign: "center" }}>
-                  Uploading {file?.name}…
+              <div style={{ textAlign: "center" }}>
+                <div style={{ fontWeight: 600, fontSize: 15, color: "var(--ink)" }}>
+                  Uploading and analysing with AI…
                 </div>
-                <div style={{ fontSize: 13, color: "var(--ink-2)", marginTop: 4, textAlign: "center" }}>
-                  Extracting text from your document
+                <div style={{ fontSize: 13, color: "var(--ink-2)", marginTop: 4 }}>
+                  (~30 s) — {file?.name}
+                </div>
+                <div style={{ fontSize: 12, color: "var(--ink-3)", marginTop: 8 }}>
+                  {docType === "gst_notice"    && "GST Tax Agent + Compliance Agent running"}
+                  {docType === "bank_statement" && "Finance Agent running — extracting transactions and detecting trends"}
+                  {docType === "invoice"        && "Invoice Agent running — extracting line items"}
                 </div>
               </div>
             </div>
-          ) : (
+          ) : !result ? (
             <UploadCard
               key={docType}
               title={`Drag & drop your ${config.label.toLowerCase()} here`}
@@ -366,24 +457,18 @@ function UploadPageContent() {
               acceptLabel={config.acceptLabel}
               icon={config.icon}
               onFileSelect={handleFileSelect}
-              disabled={uploading}
+              disabled={processing}
             />
-          )}
+          ) : null}
         </section>
 
         {/* Error banner */}
         {error && (
-          <div
-            style={{
-              background: "var(--danger-50)",
-              border: "1px solid #DFA098",
-              borderRadius: "var(--radius-lg)",
-              padding: "14px 16px",
-              display: "flex",
-              gap: 12,
-              alignItems: "flex-start",
-            }}
-          >
+          <div style={{
+            background: "var(--danger-50)", border: "1px solid #DFA098",
+            borderRadius: "var(--radius-lg)", padding: "14px 16px",
+            display: "flex", gap: 12, alignItems: "flex-start",
+          }}>
             <div style={{ color: "var(--danger)", marginTop: 1 }}>
               <Svg d="M10.29 3.86L1.82 18a2 2 0 001.71 3h16.94a2 2 0 001.71-3L13.71 3.86a2 2 0 00-3.42 0zM12 9v4M12 17h.01" size={18} />
             </div>
@@ -412,106 +497,26 @@ function UploadPageContent() {
           </div>
         )}
 
-        {/* Step 3 — Success + Analyse */}
-        {uploadResult && !uploading && (
+        {/* Step 3 — Inline result */}
+        {result && !processing && (
           <section>
             <h2 style={{ fontSize: 15, fontWeight: 700, color: "var(--ink)", marginBottom: 12 }}>
-              3. Review and analyse
+              3. Analysis results
             </h2>
+            <ResultSummary result={result} docType={docType} />
 
-            <div
-              style={{
-                background: "var(--surface)",
-                border: "1px solid var(--border)",
-                borderRadius: "var(--radius-lg)",
-                boxShadow: "var(--shadow-sm)",
-                overflow: "hidden",
-              }}
-            >
-              {/* Success header */}
-              <div
+            {/* Upload another */}
+            <div style={{ marginTop: 16, textAlign: "center" }}>
+              <button
+                onClick={() => { setFile(null); setResult(null); setError(null); }}
                 style={{
-                  background: "var(--success-50)",
-                  borderBottom: "1px solid #A6CBB5",
-                  padding: "12px 16px",
-                  display: "flex",
-                  alignItems: "center",
-                  gap: 10,
+                  fontSize: 13, color: "var(--ink-2)", fontWeight: 500,
+                  background: "none", border: "none", cursor: "pointer",
+                  fontFamily: "inherit", textDecoration: "underline",
                 }}
               >
-                <div style={{ color: "var(--success)" }}>
-                  <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round">
-                    <path d="M20 6L9 17l-5-5" />
-                  </svg>
-                </div>
-                <div>
-                  <span style={{ fontWeight: 600, fontSize: 14, color: "var(--success)" }}>
-                    Upload successful
-                  </span>
-                  {"rows_parsed" in uploadResult ? (
-                    <span style={{ fontSize: 13, color: "var(--success)", marginLeft: 8 }}>
-                      {uploadResult.rows_parsed} transactions parsed ·{" "}
-                      {uploadResult.date_range.start} → {uploadResult.date_range.end}
-                    </span>
-                  ) : (
-                    <span style={{ fontSize: 13, color: "var(--success)", marginLeft: 8 }}>
-                      upload_id: <code style={{ fontSize: 12 }}>{uploadResult.upload_id.slice(0, 8)}…</code>
-                    </span>
-                  )}
-                </div>
-              </div>
-
-              {/* Text preview (PDF uploads only) */}
-              {"extracted_text_preview" in uploadResult && uploadResult.extracted_text_preview && (
-                <div style={{ padding: "14px 16px" }}>
-                  <div style={{ fontSize: 12, fontWeight: 600, color: "var(--ink-3)", textTransform: "uppercase", letterSpacing: "0.04em", marginBottom: 8 }}>
-                    Extracted text preview
-                  </div>
-                  <TextPreview text={uploadResult.extracted_text_preview} />
-                </div>
-              )}
-
-              {/* CTA */}
-              <div style={{ padding: "14px 16px", borderTop: "1px solid var(--border)" }}>
-                <button
-                  onClick={handleAnalyze}
-                  disabled={analyzing}
-                  style={{
-                    width: "100%",
-                    background: analyzing ? "var(--primary-50)" : "var(--primary)",
-                    color: analyzing ? "var(--primary)" : "#FCFAF4",
-                    border: "none",
-                    borderRadius: "var(--radius-md)",
-                    padding: "12px 20px",
-                    fontWeight: 700,
-                    fontSize: 15,
-                    cursor: analyzing ? "not-allowed" : "pointer",
-                    display: "flex",
-                    alignItems: "center",
-                    justifyContent: "center",
-                    gap: 10,
-                    transition: "background 150ms var(--ease)",
-                    fontFamily: "inherit",
-                  }}
-                >
-                  {analyzing ? (
-                    <>
-                      <Spinner size={18} />
-                      Analysing with AI…
-                    </>
-                  ) : (
-                    <>
-                      <Svg d="M5 12h14M12 5l7 7-7 7" size={18} />
-                      Analyse now
-                    </>
-                  )}
-                </button>
-                <p style={{ fontSize: 12, color: "var(--ink-3)", textAlign: "center", marginTop: 8 }}>
-                  {docType === "gst_notice" && "Runs GST Tax Agent + Compliance Agent — takes ~30 s"}
-                  {docType === "bank_statement" && "Runs Finance Agent — detects cash flow trends and anomalies"}
-                  {docType === "invoice" && "Runs Invoice Agent — extracts all line items and GST breakdown"}
-                </p>
-              </div>
+                Upload another document
+              </button>
             </div>
           </section>
         )}
