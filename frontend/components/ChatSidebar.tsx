@@ -1,7 +1,7 @@
 "use client";
 
 import { useCallback, useEffect, useRef, useState } from "react";
-import { streamChat, type ChatTopic, type ChatMessage } from "@/lib/api";
+import { streamChat, saveChat, type ChatTopic, type ChatMessage } from "@/lib/api";
 
 // ── Topic config ──────────────────────────────────────────────────────────────
 
@@ -77,18 +77,16 @@ function uid() {
   return Math.random().toString(36).slice(2, 10);
 }
 
+function generateChatId() {
+  return `chat_${Date.now()}_${Math.random().toString(36).slice(2, 6)}`;
+}
+
 // ── Message bubble ─────────────────────────────────────────────────────────────
 
 function MessageBubble({ msg }: { msg: InternalMessage }) {
   const isUser = msg.role === "user";
   return (
-    <div
-      style={{
-        display: "flex",
-        justifyContent: isUser ? "flex-end" : "flex-start",
-        marginBottom: 10,
-      }}
-    >
+    <div style={{ display: "flex", justifyContent: isUser ? "flex-end" : "flex-start", marginBottom: 10 }}>
       <div
         style={{
           maxWidth: "82%",
@@ -128,14 +126,7 @@ function MessageBubble({ msg }: { msg: InternalMessage }) {
 
 function TopicDivider({ label }: { label: string }) {
   return (
-    <div
-      style={{
-        display: "flex",
-        alignItems: "center",
-        gap: 8,
-        margin: "12px 0 8px",
-      }}
-    >
+    <div style={{ display: "flex", alignItems: "center", gap: 8, margin: "12px 0 8px" }}>
       <div style={{ flex: 1, height: 1, background: "var(--border)" }} />
       <span style={{ fontSize: 11, color: "var(--ink-3)", fontWeight: 600, whiteSpace: "nowrap" }}>
         {label}
@@ -165,16 +156,36 @@ function TypingIndicator() {
           <div
             key={i}
             style={{
-              width: 6,
-              height: 6,
-              borderRadius: "50%",
-              background: "var(--ink-3)",
+              width: 6, height: 6, borderRadius: "50%", background: "var(--ink-3)",
               animation: `bounce 1.2s ${i * 0.2}s ease-in-out infinite`,
             }}
           />
         ))}
       </div>
     </div>
+  );
+}
+
+// ── Topic badge (used in saved-chat UI) ───────────────────────────────────────
+
+export function TopicBadge({ topic }: { topic: ChatTopic }) {
+  const colors: Record<ChatTopic, { bg: string; color: string }> = {
+    compliance: { bg: "#EEF3FF", color: "#3B5BDB" },
+    invoice:    { bg: "#FFF0F6", color: "#C2255C" },
+    finance:    { bg: "#EBFBEE", color: "#2F9E44" },
+    misc:       { bg: "#FFF9DB", color: "#E67700" },
+  };
+  const cfg = colors[topic];
+  const label = TOPICS.find((t) => t.id === topic)?.label ?? topic;
+  return (
+    <span style={{
+      display: "inline-flex", alignItems: "center",
+      padding: "2px 8px", borderRadius: 20,
+      background: cfg.bg, color: cfg.color,
+      fontSize: 11, fontWeight: 700,
+    }}>
+      {label}
+    </span>
   );
 }
 
@@ -186,62 +197,122 @@ export default function ChatSidebar() {
   const [messages, setMessages] = useState<InternalMessage[]>([]);
   const [input, setInput] = useState("");
   const [isStreaming, setIsStreaming] = useState(false);
+  const [chatId, setChatId] = useState<string>(() => generateChatId());
+
   const bottomRef = useRef<HTMLDivElement>(null);
   const inputRef = useRef<HTMLTextAreaElement>(null);
-  // Auto-scroll on new messages
+  const saveTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+
+  // ── Auto-scroll ─────────────────────────────────────────────────────────────
   useEffect(() => {
     bottomRef.current?.scrollIntoView({ behavior: "smooth" });
   }, [messages]);
 
-  // Focus input when opened
+  // ── Focus input on open ──────────────────────────────────────────────────────
   useEffect(() => {
-    if (open) {
-      setTimeout(() => inputRef.current?.focus(), 120);
-    }
+    if (open) setTimeout(() => inputRef.current?.focus(), 120);
   }, [open]);
 
-  // Build history for the API (exclude the streaming placeholder)
-  const getHistory = useCallback(
-    (currentMessages: InternalMessage[]): ChatMessage[] =>
-      currentMessages
-        .filter((m) => !m.streaming)
-        .map((m) => ({ role: m.role, content: m.content })),
+  // ── Listen for quick-action events from other pages ──────────────────────────
+  useEffect(() => {
+    const handleOpen = (e: Event) => {
+      const { topic: t, prefill } = (e as CustomEvent<{ topic?: ChatTopic; prefill?: string }>).detail;
+      setOpen(true);
+      if (t) setTopic(t);
+      if (prefill) setInput(prefill);
+      setTimeout(() => inputRef.current?.focus(), 150);
+    };
+
+    const handleLoad = (e: Event) => {
+      const { id, topic: t, messages: msgs } = (e as CustomEvent<{
+        id: string;
+        topic: ChatTopic;
+        messages: ChatMessage[];
+      }>).detail;
+      setChatId(id);
+      setTopic(t);
+      setMessages(
+        msgs.map((m) => ({ id: uid(), role: m.role, content: m.content, topic: t })),
+      );
+      setInput("");
+      setOpen(true);
+      setTimeout(() => inputRef.current?.focus(), 150);
+    };
+
+    window.addEventListener("raseed:chat", handleOpen);
+    window.addEventListener("raseed:load-chat", handleLoad);
+    return () => {
+      window.removeEventListener("raseed:chat", handleOpen);
+      window.removeEventListener("raseed:load-chat", handleLoad);
+    };
+  }, []);
+
+  // ── Debounced auto-save ──────────────────────────────────────────────────────
+  const scheduleSave = useCallback(
+    (currentMessages: InternalMessage[], currentTopic: ChatTopic, currentChatId: string) => {
+      const completed = currentMessages.filter((m) => !m.streaming);
+      if (completed.length < 2) return; // need at least 1 exchange to bother saving
+      if (saveTimerRef.current) clearTimeout(saveTimerRef.current);
+      saveTimerRef.current = setTimeout(async () => {
+        const title =
+          completed.find((m) => m.role === "user")?.content.slice(0, 80) ?? "Conversation";
+        try {
+          await saveChat(
+            currentChatId,
+            currentTopic,
+            title,
+            completed.map((m) => ({ role: m.role, content: m.content })),
+          );
+        } catch {
+          // Non-fatal — continue silently
+        }
+      }, 1500);
+    },
     [],
   );
 
-  // Handle topic switch — add a divider marker
+  // ── History for API ──────────────────────────────────────────────────────────
+  const getHistory = useCallback(
+    (msgs: InternalMessage[]): ChatMessage[] =>
+      msgs.filter((m) => !m.streaming).map((m) => ({ role: m.role, content: m.content })),
+    [],
+  );
+
+  // ── Topic switch ─────────────────────────────────────────────────────────────
   function handleTopicChange(newTopic: ChatTopic) {
     if (newTopic === topic) return;
     setTopic(newTopic);
-    // Topic change is shown via divider in the render
   }
 
+  // ── New chat ─────────────────────────────────────────────────────────────────
+  function handleNewChat() {
+    setMessages([]);
+    setInput("");
+    setChatId(generateChatId());
+    setTopic("compliance");
+    setTimeout(() => inputRef.current?.focus(), 50);
+  }
+
+  // ── Send message ─────────────────────────────────────────────────────────────
   async function sendMessage() {
     const text = input.trim();
     if (!text || isStreaming) return;
     setInput("");
+    // Reset textarea height
+    if (inputRef.current) {
+      inputRef.current.style.height = "auto";
+    }
 
-    const userMsg: InternalMessage = {
-      id: uid(),
-      role: "user",
-      content: text,
-      topic,
-    };
-
+    const userMsg: InternalMessage = { id: uid(), role: "user", content: text, topic };
     const assistantId = uid();
     const assistantMsg: InternalMessage = {
-      id: assistantId,
-      role: "assistant",
-      content: "",
-      topic,
-      streaming: true,
+      id: assistantId, role: "assistant", content: "", topic, streaming: true,
     };
 
     setMessages((prev) => [...prev, userMsg, assistantMsg]);
     setIsStreaming(true);
 
     try {
-      // history = all completed messages before the new user message
       const history = getHistory(messages);
       const reader = await streamChat(text, topic, history);
 
@@ -251,29 +322,20 @@ export default function ChatSidebar() {
         if (done) break;
         accumulated += value;
         setMessages((prev) =>
-          prev.map((m) =>
-            m.id === assistantId
-              ? { ...m, content: accumulated, streaming: true }
-              : m,
-          ),
+          prev.map((m) => m.id === assistantId ? { ...m, content: accumulated, streaming: true } : m),
         );
       }
 
       // Mark streaming done
-      setMessages((prev) =>
-        prev.map((m) =>
-          m.id === assistantId ? { ...m, streaming: false } : m,
-        ),
-      );
+      setMessages((prev) => {
+        const updated = prev.map((m) => m.id === assistantId ? { ...m, streaming: false } : m);
+        scheduleSave(updated, topic, chatId);
+        return updated;
+      });
     } catch (err) {
-      const errText =
-        err instanceof Error ? err.message : "Something went wrong. Please try again.";
+      const errText = err instanceof Error ? err.message : "Something went wrong. Please try again.";
       setMessages((prev) =>
-        prev.map((m) =>
-          m.id === assistantId
-            ? { ...m, content: errText, streaming: false }
-            : m,
-        ),
+        prev.map((m) => m.id === assistantId ? { ...m, content: errText, streaming: false } : m),
       );
     } finally {
       setIsStreaming(false);
@@ -288,20 +350,20 @@ export default function ChatSidebar() {
     }
   }
 
-  // Group messages with topic dividers
+  // ── Render ────────────────────────────────────────────────────────────────────
+
+  const topicConfig = TOPICS.find((t) => t.id === topic)!;
+  const hasMessages = messages.length > 0;
+
+  // Build rendered list with topic dividers
   const renderedItems: React.ReactNode[] = [];
   let lastTopic: ChatTopic | null = null;
-
-  // Welcome message for current topic (if no messages for this topic)
-  const topicConfig = TOPICS.find((t) => t.id === topic)!;
-  const hasTopicMessages = messages.some((m) => m.topic === topic);
-
   for (const msg of messages) {
     if (msg.topic !== lastTopic) {
       const cfg = TOPICS.find((t) => t.id === msg.topic)!;
       if (lastTopic !== null) {
         renderedItems.push(
-          <TopicDivider key={`divider-${msg.id}`} label={`Switched to ${cfg.label}`} />,
+          <TopicDivider key={`div-${msg.id}`} label={`Switched to ${cfg.label}`} />,
         );
       }
       lastTopic = msg.topic;
@@ -309,66 +371,36 @@ export default function ChatSidebar() {
     renderedItems.push(<MessageBubble key={msg.id} msg={msg} />);
   }
 
-  const activeTopic = TOPICS.find((t) => t.id === topic)!;
-
   return (
     <>
-      {/* CSS animations */}
       <style>{`
-        @keyframes blink {
-          0%, 100% { opacity: 1; }
-          50% { opacity: 0; }
-        }
-        @keyframes bounce {
-          0%, 80%, 100% { transform: translateY(0); }
-          40% { transform: translateY(-6px); }
-        }
-        @keyframes slideIn {
-          from { transform: translateX(100%); opacity: 0; }
-          to { transform: translateX(0); opacity: 1; }
-        }
-        @keyframes fadeUp {
-          from { transform: translateY(12px); opacity: 0; }
-          to { transform: translateY(0); opacity: 1; }
-        }
-        @keyframes spin {
-          to { transform: rotate(360deg); }
-        }
+        @keyframes blink { 0%,100%{opacity:1} 50%{opacity:0} }
+        @keyframes bounce { 0%,80%,100%{transform:translateY(0)} 40%{transform:translateY(-6px)} }
+        @keyframes chatSlideIn { from{transform:translateX(24px) scale(0.97);opacity:0} to{transform:none;opacity:1} }
+        @keyframes chatFadeUp  { from{transform:translateY(12px);opacity:0} to{transform:none;opacity:1} }
+        @keyframes spin { to{transform:rotate(360deg)} }
       `}</style>
 
       {/* Toggle bubble */}
       <button
         onClick={() => setOpen((v) => !v)}
-        aria-label={open ? "Close chat" : "Open AI assistant"}
+        aria-label={open ? "Close AI assistant" : "Open AI assistant"}
+        title={open ? "Close AI assistant" : "Ask Raseed AI"}
         style={{
-          position: "fixed",
-          bottom: 24,
-          right: 24,
-          zIndex: 9999,
-          width: 52,
-          height: 52,
-          borderRadius: "50%",
+          position: "fixed", bottom: 24, right: 24, zIndex: 9999,
+          width: 52, height: 52, borderRadius: "50%",
           background: open ? "var(--ink)" : "var(--primary)",
-          border: "none",
-          cursor: "pointer",
-          display: "flex",
-          alignItems: "center",
-          justifyContent: "center",
+          border: "none", cursor: "pointer",
+          display: "flex", alignItems: "center", justifyContent: "center",
           boxShadow: "0 4px 20px rgba(0,0,0,0.20)",
-          transition: "background 200ms, transform 200ms",
-          transform: open ? "rotate(45deg)" : "rotate(0deg)",
+          transition: "background 200ms",
         }}
-        onMouseEnter={(e) => { (e.currentTarget.style.transform = open ? "rotate(45deg) scale(1.08)" : "scale(1.08)"); }}
-        onMouseLeave={(e) => { (e.currentTarget.style.transform = open ? "rotate(45deg)" : "rotate(0deg)"); }}
       >
         {open ? (
-          // X icon when open
           <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="#FCFAF4" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round">
-            <line x1="18" y1="6" x2="6" y2="18" />
-            <line x1="6" y1="6" x2="18" y2="18" />
+            <line x1="18" y1="6" x2="6" y2="18" /><line x1="6" y1="6" x2="18" y2="18" />
           </svg>
         ) : (
-          // Chat bubble icon when closed
           <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="#FCFAF4" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
             <path d="M21 15a2 2 0 01-2 2H7l-4 4V5a2 2 0 012-2h14a2 2 0 012 2z" />
           </svg>
@@ -379,53 +411,51 @@ export default function ChatSidebar() {
       {open && (
         <div
           style={{
-            position: "fixed",
-            bottom: 88,
-            right: 24,
-            zIndex: 9998,
+            position: "fixed", bottom: 88, right: 24, zIndex: 9998,
             width: "min(340px, calc(100vw - 32px))",
             height: "min(560px, calc(100vh - 120px))",
             background: "var(--surface)",
             border: "1px solid var(--border)",
             borderRadius: "var(--radius-lg)",
             boxShadow: "0 8px 40px rgba(0,0,0,0.16)",
-            display: "flex",
-            flexDirection: "column",
-            overflow: "hidden",
-            animation: "slideIn 200ms ease-out, fadeUp 200ms ease-out",
+            display: "flex", flexDirection: "column", overflow: "hidden",
+            animation: "chatSlideIn 200ms ease-out",
           }}
         >
-          {/* Header */}
-          <div
-            style={{
-              padding: "12px 14px 10px",
-              borderBottom: "1px solid var(--border)",
-              flexShrink: 0,
-            }}
-          >
+          {/* ── Header ─────────────────────────────────────────────────────── */}
+          <div style={{ padding: "12px 14px 10px", borderBottom: "1px solid var(--border)", flexShrink: 0 }}>
             <div style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: 10 }}>
-              <div
-                style={{
-                  width: 28,
-                  height: 28,
-                  borderRadius: 8,
-                  background: "var(--primary)",
-                  display: "flex",
-                  alignItems: "center",
-                  justifyContent: "center",
-                  flexShrink: 0,
-                }}
-              >
+              {/* Logo mark */}
+              <div style={{
+                width: 28, height: 28, borderRadius: 8, background: "var(--primary)",
+                display: "flex", alignItems: "center", justifyContent: "center", flexShrink: 0,
+              }}>
                 <span style={{ color: "#FCFAF4", fontWeight: 800, fontSize: 14, lineHeight: 1 }}>₹</span>
               </div>
-              <div>
+              <div style={{ flex: 1, minWidth: 0 }}>
                 <div style={{ fontSize: 13, fontWeight: 700, color: "var(--ink)", lineHeight: 1.2 }}>
                   Raseed AI
                 </div>
-                <div style={{ fontSize: 11, color: "var(--ink-3)" }}>
-                  {activeTopic.label} mode
-                </div>
+                <div style={{ fontSize: 11, color: "var(--ink-3)" }}>{topicConfig.label} mode</div>
               </div>
+              {/* New chat button */}
+              <button
+                onClick={handleNewChat}
+                title="New conversation"
+                style={{
+                  width: 28, height: 28, borderRadius: 8, border: "1px solid var(--border)",
+                  background: "var(--bg-2)", cursor: "pointer", display: "flex",
+                  alignItems: "center", justifyContent: "center", flexShrink: 0, color: "var(--ink-3)",
+                  transition: "background 120ms, color 120ms",
+                }}
+                onMouseEnter={(e) => { e.currentTarget.style.background = "var(--bg-3)"; e.currentTarget.style.color = "var(--ink)"; }}
+                onMouseLeave={(e) => { e.currentTarget.style.background = "var(--bg-2)"; e.currentTarget.style.color = "var(--ink-3)"; }}
+              >
+                <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round">
+                  <line x1="12" y1="5" x2="12" y2="19" />
+                  <line x1="5" y1="12" x2="19" y2="12" />
+                </svg>
+              </button>
             </div>
 
             {/* Topic pills */}
@@ -437,64 +467,34 @@ export default function ChatSidebar() {
                     key={t.id}
                     onClick={() => handleTopicChange(t.id)}
                     style={{
-                      display: "inline-flex",
-                      alignItems: "center",
-                      gap: 5,
-                      padding: "4px 10px",
-                      borderRadius: 20,
+                      display: "inline-flex", alignItems: "center", gap: 5,
+                      padding: "4px 10px", borderRadius: 20,
                       border: active ? "1.5px solid var(--primary)" : "1.5px solid var(--border)",
-                      background: active ? "var(--primary-50, #FFF8E7)" : "transparent",
+                      background: active ? "rgba(var(--primary-rgb, 180,130,60),0.08)" : "transparent",
                       color: active ? "var(--primary)" : "var(--ink-3)",
-                      fontSize: 11,
-                      fontWeight: active ? 700 : 500,
-                      cursor: "pointer",
-                      fontFamily: "inherit",
-                      transition: "all 120ms",
-                      whiteSpace: "nowrap",
+                      fontSize: 11, fontWeight: active ? 700 : 500,
+                      cursor: "pointer", fontFamily: "inherit",
+                      transition: "all 120ms", whiteSpace: "nowrap",
                     }}
                   >
-                    {t.icon}
-                    {t.label}
+                    {t.icon}{t.label}
                   </button>
                 );
               })}
             </div>
           </div>
 
-          {/* Messages area */}
-          <div
-            style={{
-              flex: 1,
-              overflowY: "auto",
-              padding: "12px 14px 4px",
-              display: "flex",
-              flexDirection: "column",
-            }}
-          >
-            {/* Welcome message when topic has no messages */}
-            {!hasTopicMessages && (
-              <div
-                style={{
-                  margin: "auto 0",
-                  textAlign: "center",
-                  padding: "20px 8px",
-                  animation: "fadeUp 250ms ease-out",
-                }}
-              >
-                <div
-                  style={{
-                    width: 44,
-                    height: 44,
-                    borderRadius: "50%",
-                    background: "var(--bg-2)",
-                    border: "1px solid var(--border)",
-                    display: "flex",
-                    alignItems: "center",
-                    justifyContent: "center",
-                    margin: "0 auto 12px",
-                    color: "var(--primary)",
-                  }}
-                >
+          {/* ── Messages ────────────────────────────────────────────────────── */}
+          <div style={{ flex: 1, overflowY: "auto", padding: "12px 14px 4px", display: "flex", flexDirection: "column" }}>
+            {/* Welcome */}
+            {!hasMessages && (
+              <div style={{ margin: "auto 0", textAlign: "center", padding: "20px 8px", animation: "chatFadeUp 250ms ease-out" }}>
+                <div style={{
+                  width: 44, height: 44, borderRadius: "50%",
+                  background: "var(--bg-2)", border: "1px solid var(--border)",
+                  display: "flex", alignItems: "center", justifyContent: "center",
+                  margin: "0 auto 12px", color: "var(--primary)",
+                }}>
                   {topicConfig.icon}
                 </div>
                 <p style={{ fontSize: 13, color: "var(--ink-2)", lineHeight: 1.5, maxWidth: 240, margin: "0 auto" }}>
@@ -503,10 +503,9 @@ export default function ChatSidebar() {
               </div>
             )}
 
-            {/* Message bubbles with topic dividers */}
             {renderedItems}
 
-            {/* Typing indicator while waiting for first chunk */}
+            {/* Typing indicator: only when streaming but no content yet */}
             {isStreaming && messages[messages.length - 1]?.content === "" && (
               <TypingIndicator />
             )}
@@ -514,86 +513,53 @@ export default function ChatSidebar() {
             <div ref={bottomRef} />
           </div>
 
-          {/* Input area */}
-          <div
-            style={{
-              borderTop: "1px solid var(--border)",
-              padding: "10px 12px",
-              flexShrink: 0,
-              background: "var(--surface)",
-            }}
-          >
+          {/* ── Input ───────────────────────────────────────────────────────── */}
+          <div style={{ borderTop: "1px solid var(--border)", padding: "10px 12px", flexShrink: 0, background: "var(--surface)" }}>
             <div
               style={{
-                display: "flex",
-                alignItems: "flex-end",
-                gap: 8,
-                background: "var(--bg-2)",
-                border: "1px solid var(--border)",
-                borderRadius: 12,
-                padding: "6px 6px 6px 12px",
+                display: "flex", alignItems: "flex-end", gap: 8,
+                background: "var(--bg-2)", border: "1px solid var(--border)",
+                borderRadius: 12, padding: "6px 6px 6px 12px",
                 transition: "border-color 120ms",
               }}
-              onFocusCapture={(e) => {
-                (e.currentTarget.style.borderColor = "var(--primary)");
-              }}
-              onBlurCapture={(e) => {
-                (e.currentTarget.style.borderColor = "var(--border)");
-              }}
+              onFocusCapture={(e) => { e.currentTarget.style.borderColor = "var(--primary)"; }}
+              onBlurCapture={(e) => { e.currentTarget.style.borderColor = "var(--border)"; }}
             >
               <textarea
                 ref={inputRef}
                 value={input}
                 onChange={(e) => {
                   setInput(e.target.value);
-                  // Auto-resize
                   e.target.style.height = "auto";
                   e.target.style.height = Math.min(e.target.scrollHeight, 120) + "px";
                 }}
                 onKeyDown={handleKeyDown}
-                placeholder={`Ask about ${activeTopic.label.toLowerCase()}…`}
+                placeholder={`Ask about ${topicConfig.label.toLowerCase()}…`}
                 disabled={isStreaming}
                 rows={1}
                 style={{
-                  flex: 1,
-                  border: "none",
-                  background: "transparent",
-                  resize: "none",
-                  outline: "none",
-                  fontSize: 13,
-                  color: "var(--ink)",
-                  fontFamily: "inherit",
-                  lineHeight: 1.5,
-                  maxHeight: 120,
-                  overflowY: "auto",
-                  padding: 0,
+                  flex: 1, border: "none", background: "transparent", resize: "none",
+                  outline: "none", fontSize: 13, color: "var(--ink)", fontFamily: "inherit",
+                  lineHeight: 1.5, maxHeight: 120, overflowY: "auto", padding: 0,
                 }}
               />
               <button
                 onClick={sendMessage}
                 disabled={!input.trim() || isStreaming}
                 style={{
-                  width: 32,
-                  height: 32,
-                  borderRadius: 8,
+                  width: 32, height: 32, borderRadius: 8,
                   background: input.trim() && !isStreaming ? "var(--primary)" : "var(--border)",
                   border: "none",
                   cursor: input.trim() && !isStreaming ? "pointer" : "default",
-                  display: "flex",
-                  alignItems: "center",
-                  justifyContent: "center",
-                  flexShrink: 0,
-                  transition: "background 150ms",
+                  display: "flex", alignItems: "center", justifyContent: "center",
+                  flexShrink: 0, transition: "background 150ms",
                 }}
               >
                 {isStreaming ? (
-                  // Spinner
-                  <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="#FCFAF4" strokeWidth="2.5" strokeLinecap="round" style={{ animation: "spin 0.8s linear infinite" }}>
-                    <circle cx="12" cy="12" r="10" strokeOpacity="0.3" />
+                  <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="#fff" strokeWidth="2.5" strokeLinecap="round" style={{ animation: "spin 0.8s linear infinite" }}>
                     <path d="M12 2a10 10 0 0110 10" />
                   </svg>
                 ) : (
-                  // Send arrow
                   <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke={input.trim() ? "#FCFAF4" : "var(--ink-3)"} strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round">
                     <line x1="22" y1="2" x2="11" y2="13" />
                     <polygon points="22 2 15 22 11 13 2 9 22 2" />
@@ -607,7 +573,6 @@ export default function ChatSidebar() {
           </div>
         </div>
       )}
-
     </>
   );
 }

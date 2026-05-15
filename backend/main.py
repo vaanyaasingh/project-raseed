@@ -16,6 +16,7 @@ from routers.invoices import router as invoices_router
 from routers.compliance import router as compliance_router
 from routers.users import router as users_router
 from routers.chatbot import router as chatbot_router
+from routers.chats import router as chats_router
 
 app = FastAPI(
     title="Raseed API",
@@ -41,6 +42,7 @@ app.include_router(invoices_router)
 app.include_router(compliance_router)
 app.include_router(users_router)
 app.include_router(chatbot_router)
+app.include_router(chats_router)
 
 # ── Health check ──────────────────────────────────────────────────────────────
 

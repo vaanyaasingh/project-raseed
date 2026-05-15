@@ -260,8 +260,8 @@ function ResultSummary({ result, docType }: { result: UploadWithAnalysis; docTyp
         )}
       </div>
 
-      {/* View full analysis CTA */}
-      <div style={{ padding: "12px 18px", borderTop: "1px solid var(--border)" }}>
+      {/* CTAs */}
+      <div style={{ padding: "12px 18px", borderTop: "1px solid var(--border)", display: "flex", alignItems: "center", flexWrap: "wrap", gap: 12 }}>
         <Link
           href={
             docType === "invoice"
@@ -279,9 +279,56 @@ function ResultSummary({ result, docType }: { result: UploadWithAnalysis; docTyp
             <path d="M5 12h14M12 5l7 7-7 7" />
           </svg>
         </Link>
-        <span style={{ fontSize: 12, color: "var(--ink-3)", marginLeft: 16 }}>
-          on the {config.label} page
-        </span>
+
+        {/* Ask AI quick action */}
+        <button
+          onClick={() => {
+            const topicMap: Record<DocType, string> = {
+              gst_notice: "compliance",
+              invoice: "invoice",
+              bank_statement: "finance",
+            };
+            const summaryMap: Record<DocType, string> = {
+              gst_notice:
+                analysis?.integrated_insight ??
+                gstAgent?.summary ??
+                "",
+              invoice:
+                invoiceAgent?.summary ??
+                (invData.invoice_number ? `Invoice #${invData.invoice_number} from ${invData.vendor_name ?? "unknown"} — ₹${invData.grand_total ?? "?"}` : ""),
+              bank_statement:
+                finAgent?.summary ??
+                (finData.health_score !== undefined ? `Cash flow health score: ${finData.health_score}/10` : ""),
+            };
+            const prefill = summaryMap[docType]
+              ? `I just uploaded a ${config.label.toLowerCase()}. Here's what was found:\n\n"${summaryMap[docType]}"\n\nCan you help me understand this and what I should do next?`
+              : `I just uploaded a ${config.label.toLowerCase()}. Can you help me understand it?`;
+
+            window.dispatchEvent(
+              new CustomEvent("raseed:chat", {
+                detail: { topic: topicMap[docType], prefill },
+              }),
+            );
+          }}
+          style={{
+            display: "inline-flex", alignItems: "center", gap: 6,
+            padding: "6px 14px",
+            borderRadius: "var(--radius-md)",
+            border: "1.5px solid var(--border)",
+            background: "var(--bg-2)",
+            color: "var(--ink-2)",
+            fontSize: 13, fontWeight: 600,
+            cursor: "pointer", fontFamily: "inherit",
+            transition: "all 120ms",
+          }}
+          onMouseEnter={(e) => { e.currentTarget.style.borderColor = "var(--primary)"; e.currentTarget.style.color = "var(--primary)"; e.currentTarget.style.background = "var(--bg)"; }}
+          onMouseLeave={(e) => { e.currentTarget.style.borderColor = "var(--border)"; e.currentTarget.style.color = "var(--ink-2)"; e.currentTarget.style.background = "var(--bg-2)"; }}
+        >
+          <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round">
+            <path d="M21 15a2 2 0 01-2 2H7l-4 4V5a2 2 0 012-2h14a2 2 0 012 2z" />
+          </svg>
+          Ask AI about this
+        </button>
       </div>
     </div>
   );

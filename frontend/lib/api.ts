@@ -491,6 +491,50 @@ export async function streamChat(
     .getReader();
 }
 
+// ── Saved chats ───────────────────────────────────────────────────────────────
+
+export interface ChatRecord {
+  id: string;
+  topic: ChatTopic;
+  title: string;
+  updated_at: string;
+  created_at: string;
+  messages?: ChatMessage[];
+}
+
+export async function listChats(): Promise<ChatRecord[]> {
+  const res = await request<{ chats: ChatRecord[] }>("/chats", {
+    headers: await getAuthHeaders(),
+  });
+  return res.chats;
+}
+
+export async function getChat(chatId: string): Promise<ChatRecord> {
+  return request<ChatRecord>(`/chats/${chatId}`, {
+    headers: await getAuthHeaders(),
+  });
+}
+
+export async function saveChat(
+  id: string,
+  topic: ChatTopic,
+  title: string,
+  messages: ChatMessage[],
+): Promise<void> {
+  await request<{ ok: boolean }>(`/chats/${id}`, {
+    method: "PUT",
+    headers: await getAuthHeaders(),
+    body: JSON.stringify({ id, topic, title, messages }),
+  });
+}
+
+export async function deleteSavedChat(chatId: string): Promise<void> {
+  await request<{ ok: boolean }>(`/chats/${chatId}`, {
+    method: "DELETE",
+    headers: await getAuthHeaders(),
+  });
+}
+
 // ── Invoice PDF download ───────────────────────────────────────────────────────
 
 export async function downloadInvoicePdf(invoiceId: string, filename = "invoice.pdf"): Promise<void> {

@@ -195,7 +195,40 @@ function UploadedInvoiceCard({
 
         {/* Action row */}
         {analysis && hasInvoiceData && !isWrongAgent && (
-          <div style={{ marginTop: 14, paddingTop: 12, borderTop: "1px solid var(--border)", display: "flex", gap: 8, justifyContent: "flex-end" }}>
+          <div style={{ marginTop: 14, paddingTop: 12, borderTop: "1px solid var(--border)", display: "flex", gap: 8, justifyContent: "flex-end", flexWrap: "wrap" }}>
+            {/* Ask AI */}
+            <button
+              onClick={() => {
+                const context = [
+                  vendorName && `from ${vendorName}`,
+                  buyerName && `to ${buyerName}`,
+                  grandTotal != null && `totalling ₹${grandTotal.toLocaleString("en-IN")}`,
+                  invNumber && `(Invoice #${invNumber})`,
+                  invDate && `dated ${formatDate(invDate)}`,
+                  response?.summary,
+                ].filter(Boolean).join(", ");
+                window.dispatchEvent(new CustomEvent("raseed:chat", {
+                  detail: {
+                    topic: "invoice",
+                    prefill: `I have an invoice ${context}. Can you help me verify if it's GST-compliant and what I should check?`,
+                  },
+                }));
+              }}
+              style={{
+                display: "inline-flex", alignItems: "center", gap: 6,
+                padding: "7px 12px", borderRadius: "var(--radius-md)",
+                background: "transparent", color: "var(--ink-3)",
+                border: "1px solid var(--border)", fontSize: 12, fontWeight: 600,
+                cursor: "pointer", fontFamily: "inherit", transition: "all 120ms",
+              }}
+              onMouseEnter={(e) => { e.currentTarget.style.borderColor = "var(--primary)"; e.currentTarget.style.color = "var(--primary)"; }}
+              onMouseLeave={(e) => { e.currentTarget.style.borderColor = "var(--border)"; e.currentTarget.style.color = "var(--ink-3)"; }}
+            >
+              <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round">
+                <path d="M21 15a2 2 0 01-2 2H7l-4 4V5a2 2 0 012-2h14a2 2 0 012 2z" />
+              </svg>
+              Ask AI
+            </button>
             <button
               onClick={() => downloadInvoicePdf(upload.id, `invoice-${invNumber ?? upload.id.slice(0,8)}.pdf`)}
               style={{
