@@ -5,6 +5,7 @@ import Link from "next/link";
 import { useEffect, useState } from "react";
 import { usePathname, useRouter } from "next/navigation";
 import AuthGuard from "@/components/AuthGuard";
+import ChatSidebar from "@/components/ChatSidebar";
 import { supabase, signOut } from "@/lib/supabase";
 
 // ── Nav items ──────────────────────────────────────────────────────────────
@@ -311,6 +312,7 @@ export default function RootLayout({ children }: { children: React.ReactNode }) 
               </main>
             </div>
             <BottomNav />
+            <ChatSidebar />
           </>
         )}
       </body>

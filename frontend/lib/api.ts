@@ -459,6 +459,38 @@ export async function deleteLetterhead(): Promise<void> {
   });
 }
 
+// ── Chat ──────────────────────────────────────────────────────────────────────
+
+export type ChatTopic = "compliance" | "invoice" | "finance" | "misc";
+
+export interface ChatMessage {
+  role: "user" | "assistant";
+  content: string;
+}
+
+/**
+ * Stream a chat response from the backend.
+ * Returns a ReadableStreamDefaultReader<string> so the caller can consume chunks.
+ */
+export async function streamChat(
+  message: string,
+  topic: ChatTopic,
+  history: ChatMessage[],
+): Promise<ReadableStreamDefaultReader<string>> {
+  const headers = await getAuthHeaders();
+  const res = await fetch(`${BASE}/chat`, {
+    method: "POST",
+    headers,
+    body: JSON.stringify({ message, topic, history }),
+  });
+  if (!res.ok || !res.body) {
+    throw new Error(`Chat request failed: ${res.status}`);
+  }
+  return res.body
+    .pipeThrough(new TextDecoderStream())
+    .getReader();
+}
+
 // ── Invoice PDF download ───────────────────────────────────────────────────────
 
 export async function downloadInvoicePdf(invoiceId: string, filename = "invoice.pdf"): Promise<void> {
