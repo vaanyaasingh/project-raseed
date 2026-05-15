@@ -10,17 +10,12 @@ langgraph==0.1.19
 
 # Document processing
 PyMuPDF==1.24.3
-pytesseract==0.3.10
 pdfplumber==0.11.1
 Pillow==10.3.0
 
-# Data / ML
+# Data
 pandas==2.2.2
 numpy==1.26.4
-scikit-learn==1.4.2
-
-# Storage
-chromadb==0.5.0
 
 # Auth
 pyjwt[crypto]>=2.8.0
