@@ -1,16 +1,41 @@
 "use client";
 
-import { useState } from "react";
-import { useRouter } from "next/navigation";
-import { signInWithOtp, verifyOtp } from "@/lib/supabase";
+import { Suspense, useEffect, useState } from "react";
+import { useRouter, useSearchParams } from "next/navigation";
+import { signInWithOtp, verifyOtp, signInAsDemo } from "@/lib/supabase";
+import { BASE } from "@/lib/api";
 
-export default function LoginPage() {
+function LoginPageContent() {
   const router = useRouter();
+  const searchParams = useSearchParams();
   const [step, setStep] = useState<"email" | "otp">("email");
   const [email, setEmail] = useState("");
   const [otp, setOtp] = useState("");
   const [loading, setLoading] = useState(false);
+  const [demoLoading, setDemoLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
+
+  async function handleDemoLogin() {
+    setDemoLoading(true);
+    setError(null);
+    try {
+      const res = await fetch(`${BASE}/auth/demo-login`, { method: "POST" });
+      if (!res.ok) throw new Error("Demo login is unavailable right now.");
+      const { email: demoEmail, token_hash } = await res.json();
+      await signInAsDemo(demoEmail, token_hash);
+      router.push("/");
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "Failed to sign in to the demo account.");
+      setDemoLoading(false);
+    }
+  }
+
+  useEffect(() => {
+    if (searchParams.get("demo") === "1") {
+      handleDemoLogin();
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
 
   async function handleSendOtp(e: React.FormEvent) {
     e.preventDefault();
@@ -81,6 +106,21 @@ export default function LoginPage() {
             >
               {loading ? "Sending…" : "Send OTP"}
             </button>
+
+            <div className="flex items-center gap-2 py-1">
+              <div className="h-px flex-1 bg-gray-100" />
+              <span className="text-xs text-gray-400">or</span>
+              <div className="h-px flex-1 bg-gray-100" />
+            </div>
+
+            <button
+              type="button"
+              onClick={handleDemoLogin}
+              disabled={demoLoading}
+              className="w-full py-2.5 px-4 rounded-lg border border-gray-200 text-gray-700 text-sm font-semibold hover:bg-gray-50 disabled:opacity-50 disabled:cursor-not-allowed transition"
+            >
+              {demoLoading ? "Signing in…" : "Try Demo Account"}
+            </button>
           </form>
         ) : (
           <form onSubmit={handleVerifyOtp} className="space-y-4">
@@ -128,5 +168,13 @@ export default function LoginPage() {
         )}
       </div>
     </div>
+  );
+}
+
+export default function LoginPage() {
+  return (
+    <Suspense>
+      <LoginPageContent />
+    </Suspense>
   );
 }

@@ -25,6 +25,16 @@ export const verifyOtp = async (email: string, token: string) => {
   return data;
 };
 
+export const signInAsDemo = async (email: string, tokenHash: string) => {
+  const { data, error } = await supabase.auth.verifyOtp({
+    email,
+    token_hash: tokenHash,
+    type: "magiclink",
+  });
+  if (error) throw error;
+  return data;
+};
+
 export const signOut = async () => {
   const { error } = await supabase.auth.signOut();
   if (error) throw error;
