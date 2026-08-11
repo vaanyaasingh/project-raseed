@@ -1,0 +1,38 @@
+"""Auth router — one-click sign-in for the demo account."""
+
+import os
+
+from fastapi import APIRouter, HTTPException
+
+from db.supabase_client import supabase
+
+router = APIRouter(prefix="/api/v1/auth", tags=["auth"])
+
+DEMO_ACCOUNT_EMAIL = os.environ.get("DEMO_ACCOUNT_EMAIL")
+
+
+# ── POST /api/v1/auth/demo-login ───────────────────────────────────────────────
+
+@router.post("/demo-login")
+async def demo_login() -> dict:
+    """Mint a magic-link token for the fixed demo account.
+
+    The email always comes from DEMO_ACCOUNT_EMAIL, never from the caller —
+    otherwise this endpoint would let anyone generate a login link for any
+    address in the project.
+    """
+    if not DEMO_ACCOUNT_EMAIL:
+        raise HTTPException(status_code=503, detail="Demo account is not configured.")
+
+    try:
+        result = supabase.auth.admin.generate_link({
+            "type": "magiclink",
+            "email": DEMO_ACCOUNT_EMAIL,
+        })
+    except Exception as exc:
+        raise HTTPException(status_code=502, detail=f"Failed to create demo session: {exc}")
+
+    return {
+        "email": DEMO_ACCOUNT_EMAIL,
+        "token_hash": result.properties.hashed_token,
+    }
