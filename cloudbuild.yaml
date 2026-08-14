@@ -8,7 +8,7 @@ steps:
     args:
       - 'build'
       - '-t'
-      - '${_REGION}-docker.pkg.dev/$PROJECT_ID/${_REPO}/project-raseed:$COMMIT_SHA'
+      - '${_REGION}-docker.pkg.dev/$PROJECT_ID/${_REPO}/project-raseed:$BUILD_ID'
       - '-f'
       - 'backend/Dockerfile'
       - './backend'
@@ -16,7 +16,7 @@ steps:
   - name: 'gcr.io/cloud-builders/docker'
     args:
       - 'push'
-      - '${_REGION}-docker.pkg.dev/$PROJECT_ID/${_REPO}/project-raseed:$COMMIT_SHA'
+      - '${_REGION}-docker.pkg.dev/$PROJECT_ID/${_REPO}/project-raseed:$BUILD_ID'
 
   - name: 'gcr.io/google-cloud-sdk/slim'
     entrypoint: gcloud
@@ -24,7 +24,7 @@ steps:
       - 'run'
       - 'deploy'
       - '${_SERVICE}'
-      - '--image=${_REGION}-docker.pkg.dev/$PROJECT_ID/${_REPO}/project-raseed:$COMMIT_SHA'
+      - '--image=${_REGION}-docker.pkg.dev/$PROJECT_ID/${_REPO}/project-raseed:$BUILD_ID'
       - '--region=${_REGION}'
       - '--platform=managed'
       # Non-secret runtime config. Secrets (SUPABASE_SERVICE_ROLE_KEY, SUPABASE_JWT_SECRET,
@@ -33,4 +33,4 @@ steps:
       - '--set-env-vars=GOOGLE_CLOUD_PROJECT=$PROJECT_ID,GOOGLE_CLOUD_LOCATION=${_REGION},GOOGLE_GENAI_USE_VERTEXAI=true'
 
 images:
-  - '${_REGION}-docker.pkg.dev/$PROJECT_ID/${_REPO}/project-raseed:$COMMIT_SHA'
+  - '${_REGION}-docker.pkg.dev/$PROJECT_ID/${_REPO}/project-raseed:$BUILD_ID'
