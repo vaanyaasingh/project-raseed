@@ -1,6 +1,5 @@
 """Chatbot router — streaming Gemini chat across four topic domains."""
 
-import os
 from typing import Literal
 
 from fastapi import APIRouter, Depends
@@ -9,23 +8,12 @@ from pydantic import BaseModel
 
 from middleware.auth import get_current_user
 from db.supabase_client import supabase
-from google import genai
 from google.genai import types
+from utils.gemini_client import get_gemini_client
 
 router = APIRouter(prefix="/api/v1/chat", tags=["chat"])
 
 _MODEL = "gemini-2.5-flash"
-_client: genai.Client | None = None
-
-
-def _get_client() -> genai.Client:
-    global _client
-    if _client is None:
-        api_key = os.getenv("GEMINI_API_KEY")
-        if not api_key:
-            raise RuntimeError("GEMINI_API_KEY is not set in environment")
-        _client = genai.Client(api_key=api_key)
-    return _client
 
 
 # ── Request schema ─────────────────────────────────────────────────────────────
@@ -121,7 +109,7 @@ async def chat(
         max_output_tokens=1024,
     )
 
-    client = _get_client()
+    client = get_gemini_client()
 
     # ── Sync generator — Starlette iterates it via run_in_threadpool ──────────
     def _stream():

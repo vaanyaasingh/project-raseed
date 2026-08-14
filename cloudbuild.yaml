@@ -1,12 +1,36 @@
+substitutions:
+  _REGION: us-central1
+  _REPO: project-raseed          # Artifact Registry repo, create once: gcloud artifacts repositories create $_REPO --repository-format=docker --location=$_REGION
+  _SERVICE: raseed-api           # Cloud Run service name
+
 steps:
   - name: 'gcr.io/cloud-builders/docker'
     args:
       - 'build'
       - '-t'
-      - 'gcr.io/$PROJECT_ID/project-raseed:$COMMIT_SHA'
+      - '${_REGION}-docker.pkg.dev/$PROJECT_ID/${_REPO}/project-raseed:$BUILD_ID'
       - '-f'
       - 'backend/Dockerfile'
       - './backend'
 
+  - name: 'gcr.io/cloud-builders/docker'
+    args:
+      - 'push'
+      - '${_REGION}-docker.pkg.dev/$PROJECT_ID/${_REPO}/project-raseed:$BUILD_ID'
+
+  - name: 'us-docker.pkg.dev/google.com/cloudsdktool/cloud-sdk:slim'
+    entrypoint: gcloud
+    args:
+      - 'run'
+      - 'deploy'
+      - '${_SERVICE}'
+      - '--image=${_REGION}-docker.pkg.dev/$PROJECT_ID/${_REPO}/project-raseed:$BUILD_ID'
+      - '--region=${_REGION}'
+      - '--platform=managed'
+      # Non-secret runtime config. Secrets (SUPABASE_SERVICE_ROLE_KEY, SUPABASE_JWT_SECRET,
+      # SMTP_PASSWORD) are set once via `gcloud run services update --set-secrets`, not here,
+      # so they aren't re-declared on every deploy and don't appear in build logs.
+      - '--set-env-vars=GOOGLE_CLOUD_PROJECT=$PROJECT_ID,GOOGLE_CLOUD_LOCATION=${_REGION},GOOGLE_GENAI_USE_VERTEXAI=true'
+
 images:
-  - 'gcr.io/$PROJECT_ID/project-raseed:$COMMIT_SHA'
+  - '${_REGION}-docker.pkg.dev/$PROJECT_ID/${_REPO}/project-raseed:$BUILD_ID'

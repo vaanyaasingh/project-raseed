@@ -15,14 +15,41 @@ _MODEL = "gemini-2.5-flash"
 _client: genai.Client | None = None
 
 
-def _get_client() -> genai.Client:
+def get_gemini_client() -> genai.Client:
+    """
+    Build (and cache) the shared Gemini client.
+
+    Prod (default): Vertex AI mode — authenticates via the runtime's
+    Application Default Credentials (e.g. the Cloud Run service account's
+    identity), no API key involved. Requires GOOGLE_CLOUD_PROJECT and
+    GOOGLE_CLOUD_LOCATION.
+
+    Local dev fallback: set GOOGLE_GENAI_USE_VERTEXAI=false and GEMINI_API_KEY
+    to use an AI Studio key instead (no GCP credentials needed on a laptop).
+    """
     global _client
     if _client is None:
-        api_key = os.getenv("GEMINI_API_KEY")
-        if not api_key:
-            raise RuntimeError("GEMINI_API_KEY is not set in environment")
-        _client = genai.Client(api_key=api_key)
+        use_vertex = os.getenv("GOOGLE_GENAI_USE_VERTEXAI", "true").lower() != "false"
+        if use_vertex:
+            project = os.getenv("GOOGLE_CLOUD_PROJECT")
+            location = os.getenv("GOOGLE_CLOUD_LOCATION", "us-central1")
+            if not project:
+                raise RuntimeError(
+                    "GOOGLE_CLOUD_PROJECT is not set (required for Vertex AI mode). "
+                    "Set GOOGLE_GENAI_USE_VERTEXAI=false and GEMINI_API_KEY to use an "
+                    "AI Studio key instead."
+                )
+            _client = genai.Client(vertexai=True, project=project, location=location)
+        else:
+            api_key = os.getenv("GEMINI_API_KEY")
+            if not api_key:
+                raise RuntimeError("GEMINI_API_KEY is not set in environment")
+            _client = genai.Client(api_key=api_key)
     return _client
+
+
+# Back-compat alias for the private name used later in this module.
+_get_client = get_gemini_client
 
 
 # ── Custom exceptions ────────────────────────────────────────────────────────
