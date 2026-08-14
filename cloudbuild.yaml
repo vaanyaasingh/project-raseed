@@ -30,7 +30,11 @@ steps:
       # Non-secret runtime config. Secrets (SUPABASE_SERVICE_ROLE_KEY, SUPABASE_JWT_SECRET,
       # SMTP_PASSWORD) are set once via `gcloud run services update --set-secrets`, not here,
       # so they aren't re-declared on every deploy and don't appear in build logs.
-      - '--set-env-vars=GOOGLE_CLOUD_PROJECT=$PROJECT_ID,GOOGLE_CLOUD_LOCATION=${_REGION},GOOGLE_GENAI_USE_VERTEXAI=true'
+      #
+      # --update-env-vars (not --set-env-vars): --set-env-vars REPLACES the entire env var
+      # set on every deploy, wiping out SUPABASE_URL/SMTP_* configured separately via
+      # `gcloud run services update`. --update-env-vars merges instead.
+      - '--update-env-vars=GOOGLE_CLOUD_PROJECT=$PROJECT_ID,GOOGLE_CLOUD_LOCATION=${_REGION},GOOGLE_GENAI_USE_VERTEXAI=true'
 
 images:
   - '${_REGION}-docker.pkg.dev/$PROJECT_ID/${_REPO}/project-raseed:$BUILD_ID'
