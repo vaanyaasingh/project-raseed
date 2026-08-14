@@ -1,5 +1,6 @@
 """Project Raseed — FastAPI entry point."""
 
+import os
 import traceback
 
 from dotenv import load_dotenv
@@ -26,10 +27,18 @@ app = FastAPI(
 )
 
 # ── CORS ──────────────────────────────────────────────────────────────────────
+# ALLOWED_ORIGINS is a comma-separated list, e.g. "https://raseed.app,https://www.raseed.app".
+# Falls back to localhost so local dev keeps working without setting anything.
+
+_allowed_origins = [
+    origin.strip()
+    for origin in os.getenv("ALLOWED_ORIGINS", "http://localhost:3000").split(",")
+    if origin.strip()
+]
 
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["http://localhost:3000"],
+    allow_origins=_allowed_origins,
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],

@@ -5,6 +5,8 @@ import { useRouter, useSearchParams } from "next/navigation";
 import { signInWithOtp, verifyOtp, signInAsDemo } from "@/lib/supabase";
 import { BASE } from "@/lib/api";
 
+const DEMO_LOGIN_ENABLED = process.env.NEXT_PUBLIC_ENABLE_DEMO_LOGIN === "true";
+
 function LoginPageContent() {
   const router = useRouter();
   const searchParams = useSearchParams();
@@ -31,7 +33,7 @@ function LoginPageContent() {
   }
 
   useEffect(() => {
-    if (searchParams.get("demo") === "1") {
+    if (DEMO_LOGIN_ENABLED && searchParams.get("demo") === "1") {
       handleDemoLogin();
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -107,20 +109,24 @@ function LoginPageContent() {
               {loading ? "Sending…" : "Send OTP"}
             </button>
 
-            <div className="flex items-center gap-2 py-1">
-              <div className="h-px flex-1 bg-gray-100" />
-              <span className="text-xs text-gray-400">or</span>
-              <div className="h-px flex-1 bg-gray-100" />
-            </div>
+            {DEMO_LOGIN_ENABLED && (
+              <>
+                <div className="flex items-center gap-2 py-1">
+                  <div className="h-px flex-1 bg-gray-100" />
+                  <span className="text-xs text-gray-400">or</span>
+                  <div className="h-px flex-1 bg-gray-100" />
+                </div>
 
-            <button
-              type="button"
-              onClick={handleDemoLogin}
-              disabled={demoLoading}
-              className="w-full py-2.5 px-4 rounded-lg border border-gray-200 text-gray-700 text-sm font-semibold hover:bg-gray-50 disabled:opacity-50 disabled:cursor-not-allowed transition"
-            >
-              {demoLoading ? "Signing in…" : "Try Demo Account"}
-            </button>
+                <button
+                  type="button"
+                  onClick={handleDemoLogin}
+                  disabled={demoLoading}
+                  className="w-full py-2.5 px-4 rounded-lg border border-gray-200 text-gray-700 text-sm font-semibold hover:bg-gray-50 disabled:opacity-50 disabled:cursor-not-allowed transition"
+                >
+                  {demoLoading ? "Signing in…" : "Try Demo Account"}
+                </button>
+              </>
+            )}
           </form>
         ) : (
           <form onSubmit={handleVerifyOtp} className="space-y-4">

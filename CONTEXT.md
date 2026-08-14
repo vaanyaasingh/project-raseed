@@ -29,12 +29,18 @@ This is a hackathon production build. Prioritize working code over perfect code.
 
 ## Environment variables
 Backend (.env):
-  GEMINI_API_KEY — from aistudio.google.com
+  GOOGLE_GENAI_USE_VERTEXAI — "true" (default/prod) uses Vertex AI + ADC; "false" uses GEMINI_API_KEY
+  GOOGLE_CLOUD_PROJECT, GOOGLE_CLOUD_LOCATION — required when using Vertex AI mode
+  GEMINI_API_KEY — only used when GOOGLE_GENAI_USE_VERTEXAI=false (local dev fallback)
+  ALLOWED_ORIGINS — comma-separated CORS origins, e.g. https://raseed.app (defaults to localhost:3000)
+  ENABLE_DEMO_LOGIN — "true" to expose /auth/demo-login; off by default
   SQLITE_DB_PATH — ../raseed.db
   CHROMADB_PATH — ./chroma_store
   SMTP_HOST, SMTP_PORT, SMTP_USER, SMTP_PASSWORD — for email
+  SUPABASE_URL, SUPABASE_SERVICE_ROLE_KEY, SUPABASE_JWT_SECRET
 Frontend (.env.local):
   NEXT_PUBLIC_API_URL — http://localhost:8000
+  NEXT_PUBLIC_ENABLE_DEMO_LOGIN — "true" to show the "Try Demo Account" button; off by default
 
 ## Gemini API usage pattern
 from google import genai
