@@ -12,6 +12,7 @@ langgraph==0.1.19
 PyMuPDF==1.24.3
 pdfplumber==0.11.1
 Pillow==10.3.0
+pytesseract==0.3.10
 
 # Data
 pandas==2.2.2
