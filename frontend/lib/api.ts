@@ -290,36 +290,6 @@ export async function uploadBankStatement(
 
 // ── Query ─────────────────────────────────────────────────────────────────────
 
-export async function queryGSTNotice(uploadId: string): Promise<GSTNoticeResponse> {
-  return request<GSTNoticeResponse>("/query/gst-notice", {
-    method: "POST",
-    headers: await getAuthHeaders(),
-    body: JSON.stringify({ upload_id: uploadId }),
-  });
-}
-
-export async function queryFinance(uploadId: string): Promise<FinanceResponse> {
-  return request<FinanceResponse>("/query/finance", {
-    method: "POST",
-    headers: await getAuthHeaders(),
-    body: JSON.stringify({ upload_id: uploadId }),
-  });
-}
-
-export async function queryIntegrated(
-  gstUploadId: string,
-  financeUploadId: string,
-): Promise<IntegratedResponse> {
-  return request<IntegratedResponse>("/query/integrated", {
-    method: "POST",
-    headers: await getAuthHeaders(),
-    body: JSON.stringify({
-      gst_upload_id: gstUploadId,
-      finance_upload_id: financeUploadId,
-    }),
-  });
-}
-
 export async function askQuestion(question: string): Promise<AskResponse> {
   return request<AskResponse>("/query/ask", {
     method: "POST",
@@ -364,6 +334,26 @@ export async function listInvoices(type?: string, limit = 20): Promise<Invoice[]
     { headers: await getAuthHeaders() },
   );
   return res.invoices;
+}
+
+// ── Integrated insight ────────────────────────────────────────────────────────
+
+export interface IntegratedInsightResponse {
+  integrated_insight: string;
+  gst_summary: string;
+  finance_summary: string;
+  agents_invoked: string[];
+}
+
+export async function queryIntegrated(
+  gstUploadId: string,
+  financeUploadId: string,
+): Promise<IntegratedInsightResponse> {
+  return request<IntegratedInsightResponse>("/query/integrated", {
+    method: "POST",
+    headers: await getAuthHeaders(),
+    body: JSON.stringify({ gst_upload_id: gstUploadId, finance_upload_id: financeUploadId }),
+  });
 }
 
 // ── Compliance ────────────────────────────────────────────────────────────────

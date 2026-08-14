@@ -78,6 +78,7 @@ function Sidebar() {
   const router = useRouter();
   const [email, setEmail] = useState<string | null>(null);
   const [name, setName]   = useState<string | null>(null);
+  const [businessName, setBusinessName] = useState<string | null>(null);
 
   useEffect(() => {
     supabase.auth.getSession().then(({ data: { session } }) => {
@@ -89,17 +90,19 @@ function Sidebar() {
     return () => subscription.unsubscribe();
   }, []);
 
-  // Load name from profile (best-effort, no error shown)
   useEffect(() => {
     if (!email) return;
     import("@/lib/api").then(({ getProfile }) => {
-      getProfile().then((p) => setName(p.name ?? null)).catch(() => null);
+      getProfile().then((p) => {
+        setName(p.name ?? null);
+        setBusinessName(p.business_name ?? null);
+      }).catch(() => null);
     });
   }, [email]);
 
   const initial = ((name ?? email ?? "?")[0] ?? "?").toUpperCase();
-  const displayName = name || email || "";
-  const shortDisplay = displayName.length > 22 ? displayName.slice(0, 20) + "…" : displayName;
+  const displayName = name || (email ? email.split("@")[0] : "");
+  const entityName = businessName || displayName || "My Business";
 
   async function handleSignOut() {
     await signOut();
@@ -109,10 +112,10 @@ function Sidebar() {
   return (
     <aside
       className="hidden md:flex flex-col h-screen sticky top-0 shrink-0"
-      style={{ width: 240, background: "var(--surface)", borderRight: "1px solid var(--border)" }}
+      style={{ width: 256, background: "var(--surface)", borderRight: "1px solid var(--border)" }}
     >
-      {/* Wordmark */}
-      <div className="flex items-center gap-3 px-5 py-5">
+      {/* Brand */}
+      <div className="flex items-center gap-3 px-5" style={{ paddingTop: 22, paddingBottom: 18 }}>
         <div
           className="flex items-center justify-center shrink-0"
           style={{ width: 34, height: 34, background: "var(--primary)", borderRadius: 8 }}
@@ -120,84 +123,120 @@ function Sidebar() {
           <span style={{ color: "#FCFAF4", fontWeight: 800, fontSize: 17, lineHeight: 1 }}>₹</span>
         </div>
         <div>
-          <div style={{ fontWeight: 800, fontSize: 16, color: "var(--ink)", letterSpacing: "-0.02em" }}>
+          <div style={{ fontWeight: 800, fontSize: 16, color: "var(--ink)", letterSpacing: "-0.02em", lineHeight: 1.2 }}>
             Raseed
           </div>
-          <div style={{ fontSize: 10, color: "var(--ink-3)", fontWeight: 500, letterSpacing: "0.02em" }}>
-            AI Compliance Copilot
+          <div style={{ fontSize: 10, color: "var(--ink-3)", fontWeight: 500, letterSpacing: "0.04em", lineHeight: 1.4 }}>
+            रसीद · receipt
           </div>
         </div>
       </div>
 
-      {/* Nav */}
-      <nav className="flex-1 px-3 space-y-0.5 overflow-y-auto">
-        {NAV.map((item) => {
-          const isActive = item.href === "/" ? pathname === "/" : pathname.startsWith(item.href);
-          return (
-            <Link key={item.href} href={item.href} className={`nav-link ${isActive ? "active" : ""}`}>
-              {item.icon}
-              {item.label}
-            </Link>
-          );
-        })}
-      </nav>
-
-      {/* User footer */}
-      <div style={{ borderTop: "1px solid var(--border)", padding: "12px" }}>
+      {/* Entity switcher */}
+      <div style={{ padding: "0 10px 10px" }}>
         <Link
           href="/profile"
-          style={{ textDecoration: "none", display: "block" }}
+          style={{ textDecoration: "none" }}
         >
           <div
-            className="flex items-center gap-3 rounded-lg px-2 py-2"
+            className="flex items-center gap-2.5"
             style={{
-              cursor: "pointer",
-              transition: "background 120ms",
+              padding: "9px 10px",
               borderRadius: "var(--radius-md)",
+              border: "1px solid var(--border)",
+              background: "var(--bg)",
+              cursor: "pointer",
+              transition: "border-color var(--dur-fast) var(--ease), background var(--dur-fast) var(--ease)",
             }}
-            onMouseEnter={(e) => (e.currentTarget.style.background = "var(--bg-2)")}
-            onMouseLeave={(e) => (e.currentTarget.style.background = "transparent")}
+            onMouseEnter={(e) => {
+              e.currentTarget.style.borderColor = "var(--border-strong)";
+              e.currentTarget.style.background = "var(--bg-2)";
+            }}
+            onMouseLeave={(e) => {
+              e.currentTarget.style.borderColor = "var(--border)";
+              e.currentTarget.style.background = "var(--bg)";
+            }}
           >
-            {/* Avatar */}
             <div style={{
-              width: 32, height: 32, borderRadius: "50%",
+              width: 28, height: 28, borderRadius: 6,
               background: "var(--primary)",
               display: "flex", alignItems: "center", justifyContent: "center",
-              flexShrink: 0,
+              flexShrink: 0, fontSize: 12, fontWeight: 800, color: "#FCFAF4",
             }}>
-              <span style={{ color: "#FCFAF4", fontWeight: 800, fontSize: 13, lineHeight: 1 }}>
-                {initial}
-              </span>
+              {initial}
             </div>
-            {/* Name / email */}
             <div style={{ minWidth: 0, flex: 1 }}>
               <div style={{
                 fontSize: 13, fontWeight: 600, color: "var(--ink)",
                 overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap",
               }}>
-                {shortDisplay || "Profile"}
+                {entityName.length > 20 ? entityName.slice(0, 18) + "…" : entityName}
               </div>
-              {name && email && (
+              {email && (
                 <div style={{
                   fontSize: 11, color: "var(--ink-3)",
                   overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap",
                 }}>
-                  {email.length > 22 ? email.slice(0, 20) + "…" : email}
+                  {email.length > 24 ? email.slice(0, 22) + "…" : email}
                 </div>
               )}
             </div>
-            {/* Settings icon */}
-            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="var(--ink-3)" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" style={{ flexShrink: 0 }}>
-              <circle cx="12" cy="12" r="3" />
-              <path d="M19.4 15a1.65 1.65 0 00.33 1.82l.06.06a2 2 0 010 2.83 2 2 0 01-2.83 0l-.06-.06a1.65 1.65 0 00-1.82-.33 1.65 1.65 0 00-1 1.51V21a2 2 0 01-2 2 2 2 0 01-2-2v-.09A1.65 1.65 0 009 19.4a1.65 1.65 0 00-1.82.33l-.06.06a2 2 0 01-2.83 0 2 2 0 010-2.83l.06-.06A1.65 1.65 0 004.68 15a1.65 1.65 0 00-1.51-1H3a2 2 0 01-2-2 2 2 0 012-2h.09A1.65 1.65 0 004.6 9a1.65 1.65 0 00-.33-1.82l-.06-.06a2 2 0 010-2.83 2 2 0 012.83 0l.06.06A1.65 1.65 0 009 4.68a1.65 1.65 0 001-1.51V3a2 2 0 012-2 2 2 0 012 2v.09a1.65 1.65 0 001 1.51 1.65 1.65 0 001.82-.33l.06-.06a2 2 0 012.83 0 2 2 0 010 2.83l-.06.06A1.65 1.65 0 0019.4 9a1.65 1.65 0 001.51 1H21a2 2 0 012 2 2 2 0 01-2 2h-.09a1.65 1.65 0 00-1.51 1z" />
+            <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="var(--ink-3)" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round" style={{ flexShrink: 0 }}>
+              <polyline points="6 9 12 15 18 9" />
             </svg>
           </div>
         </Link>
+      </div>
+
+      {/* Nav */}
+      <nav className="flex-1 px-3 overflow-y-auto" style={{ paddingTop: 4 }}>
+        <div style={{ fontSize: 10, fontWeight: 700, color: "var(--ink-3)", letterSpacing: "0.08em", padding: "6px 12px 4px", textTransform: "uppercase" }}>
+          Menu
+        </div>
+        {NAV.map((item) => {
+          const isActive = item.href === "/" ? pathname === "/" : pathname.startsWith(item.href);
+          return (
+            <Link key={item.href} href={item.href} className={`nav-link ${isActive ? "active" : ""}`} style={{ marginBottom: 1 }}>
+              {item.icon}
+              <span style={{ flex: 1 }}>{item.label}</span>
+            </Link>
+          );
+        })}
+      </nav>
+
+      {/* AI Sync footer card */}
+      <div style={{ padding: "10px 12px 6px" }}>
+        <div style={{
+          background: "var(--primary-50)",
+          borderRadius: "var(--radius-md)",
+          padding: "12px 14px",
+          display: "flex", alignItems: "flex-start", gap: 10,
+        }}>
+          <div style={{
+            width: 28, height: 28, borderRadius: 6,
+            background: "var(--primary)",
+            display: "flex", alignItems: "center", justifyContent: "center",
+            flexShrink: 0,
+          }}>
+            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="#FCFAF4" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round">
+              <path d="M21 12a9 9 0 01-9 9m9-9a9 9 0 00-9-9m9 9H3m9 9a9 9 0 01-9-9m9 9c1.66 0 3-4.03 3-9s-1.34-9-3-9m0 18c-1.66 0-3-4.03-3-9s1.34-9 3-9" />
+            </svg>
+          </div>
+          <div>
+            <div style={{ fontSize: 12, fontWeight: 700, color: "var(--primary)", lineHeight: 1.3 }}>AI Sync active</div>
+            <div style={{ fontSize: 11, color: "var(--ink-2)", marginTop: 2, lineHeight: 1.4 }}>
+              Gemini 2.5 Flash · Ready
+            </div>
+          </div>
+        </div>
+      </div>
+
+      {/* Sign out */}
+      <div style={{ padding: "4px 12px 16px" }}>
         <button
           onClick={handleSignOut}
           style={{
-            marginTop: 4,
-            width: "100%", padding: "7px 10px",
+            width: "100%", padding: "8px 10px",
             background: "none", border: "none",
             borderRadius: "var(--radius-md)",
             fontSize: 13, fontWeight: 500, color: "var(--ink-3)",

@@ -58,9 +58,9 @@ function CardSkeleton() {
 
 function StatusBadge({ status }: { status: DbUpload["analysis_status"] }) {
   const map: Record<string, { bg: string; fg: string; label: string }> = {
-    complete: { bg: "var(--success-50)", fg: "var(--success)", label: "Complete" },
-    pending:  { bg: "#FBF1E4",           fg: "var(--accent)",  label: "Pending"  },
-    failed:   { bg: "var(--danger-50)",  fg: "var(--danger)",  label: "Failed"   },
+    complete: { bg: "var(--primary-50)", fg: "var(--primary)", label: "AI Analysed" },
+    pending:  { bg: "#FBF1E4",           fg: "var(--accent)",  label: "Analysing…" },
+    failed:   { bg: "var(--danger-50)",  fg: "var(--danger)",  label: "Failed"      },
   };
   const { bg, fg, label } = map[status] ?? map.pending;
   return (
@@ -291,16 +291,34 @@ function AnalysisPanel({ analysis }: { analysis: DbAnalysis }) {
         </div>
       </div>
 
-      {/* Agent summary */}
+      {/* Agent summary + confidence */}
       {finAgent?.summary && (
         <div style={{
           padding: "12px 16px",
           background: "var(--primary-50)", border: "1px solid #B4BDEA",
           borderRadius: "var(--radius-md)",
         }}>
-          <p style={{ fontSize: 13, color: "var(--primary)", lineHeight: 1.6 }}>
-            {finAgent.summary}
-          </p>
+          <div className="flex items-start justify-between gap-3">
+            <p style={{ fontSize: 13, color: "var(--primary)", lineHeight: 1.6, flex: 1 }}>
+              {finAgent.summary}
+            </p>
+            {finAgent.confidence > 0 && (
+              <span title="AI confidence score" style={{
+                flexShrink: 0, display: "inline-flex", alignItems: "center", gap: 4,
+                padding: "3px 8px", borderRadius: 999,
+                background: "var(--primary-100)", color: "var(--primary-700)",
+                fontSize: 11, fontWeight: 700, whiteSpace: "nowrap",
+              }}>
+                <svg width="10" height="10" viewBox="0 0 24 24" fill="currentColor">
+                  <path d="M12 2l2.4 7.4H22l-6.2 4.5 2.4 7.4L12 17l-6.2 4.3 2.4-7.4L2 9.4h7.6z"/>
+                </svg>
+                {Math.round(finAgent.confidence * 100)}% confidence
+              </span>
+            )}
+          </div>
+          <div style={{ marginTop: 6, fontSize: 11, color: "var(--primary-700)", opacity: 0.7 }}>
+            Agent: finance_agent · Gemini 2.5 Flash
+          </div>
         </div>
       )}
     </div>
@@ -406,7 +424,7 @@ function UploadCard({ upload }: { upload: DbUpload }) {
 
         {upload.analysis_status === "pending" && (
           <p style={{ fontSize: 13, color: "var(--ink-3)", marginTop: 8 }}>
-            Analysis is in progress…
+            AI is analysing this statement…
           </p>
         )}
       </div>

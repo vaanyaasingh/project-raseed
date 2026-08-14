@@ -7,41 +7,63 @@
 
 /* ── Design tokens ─────────────────────────────────────────────────────────── */
 :root {
-  --primary:   #3D4FB8;
-  --primary-h: #3340A0;  /* hover */
-  --primary-50: #EEF0FB;
+  /* Primary scale */
+  --primary:     #3D4FB8;
+  --primary-h:   #3340A0;
+  --primary-50:  #EEF0FB;
+  --primary-100: #D9DEF5;
+  --primary-200: #B4BDEA;
+  --primary-600: #3340A0;
+  --primary-700: #283280;
 
-  --accent:    #E08B3C;
-  --accent-50: #FBF1E4;
+  /* Accent scale */
+  --accent:      #E08B3C;
+  --accent-50:   #FBF1E4;
+  --accent-100:  #F6E1C4;
+  --accent-700:  #834819;
 
-  --success:   #3F8A5C;
-  --success-50: #ECF4EF;
+  /* Success scale */
+  --success:     #3F8A5C;
+  --success-50:  #ECF4EF;
+  --success-200: #A6CBB5;
+  --success-700: #265439;
 
-  --danger:    #B5443A;
-  --danger-50: #F8E9E7;
+  /* Danger scale */
+  --danger:      #B5443A;
+  --danger-50:   #F8E9E7;
+  --danger-200:  #DFA098;
+  --danger-600:  #7C2C26;
 
-  --surface:   #FCFAF4;
-  --bg:        #FAF7F1;
-  --bg-2:      #F2EDE3;
-  --bg-3:      #E8E1D2;
+  /* Surfaces */
+  --surface: #FAF8F3;
+  --bg:      #F5F0E8;
+  --bg-2:    #EDE7DC;
+  --bg-3:    #E3DCD0;
 
-  --ink:       #1A1D29;
-  --ink-2:     #5C606E;
-  --ink-3:     #A2A5B0;
+  /* Ink */
+  --ink:   #1A1D29;
+  --ink-2: #5C606E;
+  --ink-3: #A2A5B0;
 
-  --border:    #E5DFD2;
-  --border-strong: #C9C2B2;
+  /* Borders */
+  --border:        #DED7C8;
+  --border-strong: #C4BAA8;
 
+  /* Shadows */
   --shadow-sm: 0 1px 2px rgba(26,29,41,0.06), 0 0 0 1px rgba(26,29,41,0.03);
   --shadow-md: 0 4px 16px rgba(26,29,41,0.08), 0 1px 2px rgba(26,29,41,0.04);
-  --shadow-lg: 0 12px 40px rgba(26,29,41,0.12), 0 2px 8px rgba(26,29,41,0.06);
+  --shadow-lg: 0 12px 32px rgba(26,29,41,0.10), 0 2px 4px rgba(26,29,41,0.04);
 
-  --radius-sm: 6px;
-  --radius-md: 8px;
-  --radius-lg: 12px;
-  --radius-xl: 16px;
+  /* Radii */
+  --radius-xs:   4px;
+  --radius-sm:   6px;
+  --radius-md:   8px;
+  --radius-lg:   12px;
+  --radius-xl:   16px;
+  --radius-pill: 999px;
 
-  --ease: cubic-bezier(0.2, 0.8, 0.2, 1);
+  /* Motion */
+  --ease:     cubic-bezier(0.2, 0.8, 0.2, 1);
   --dur-fast: 150ms;
   --dur-mid:  250ms;
 }

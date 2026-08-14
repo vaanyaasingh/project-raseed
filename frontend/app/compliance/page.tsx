@@ -4,7 +4,7 @@ import { useEffect, useState } from "react";
 import Link from "next/link";
 import NoticeExplainer from "@/components/NoticeExplainer";
 import ActionChecklist, { type ChecklistItem } from "@/components/ActionChecklist";
-import { getDeadlines, type GSTStructuredData, type ComplianceStructuredData, type DeadlinesResponse } from "@/lib/api";
+import { getDeadlines, queryIntegrated, type GSTStructuredData, type ComplianceStructuredData, type DeadlinesResponse } from "@/lib/api";
 import { getUploadsWithAnalyses, type DbUpload, type DbAnalysis } from "@/lib/supabase";
 
 // ── Helpers ────────────────────────────────────────────────────────────────
@@ -64,9 +64,9 @@ function CardSkeleton() {
 
 function StatusBadge({ status }: { status: DbUpload["analysis_status"] }) {
   const map: Record<string, { bg: string; fg: string; label: string }> = {
-    complete: { bg: "var(--success-50)", fg: "var(--success)", label: "Complete" },
-    pending:  { bg: "#FBF1E4",           fg: "var(--accent)",  label: "Pending"  },
-    failed:   { bg: "var(--danger-50)",  fg: "var(--danger)",  label: "Failed"   },
+    complete: { bg: "var(--primary-50)", fg: "var(--primary)", label: "AI Analysed" },
+    pending:  { bg: "#FBF1E4",           fg: "var(--accent)",  label: "Analysing…" },
+    failed:   { bg: "var(--danger-50)",  fg: "var(--danger)",  label: "Failed"      },
   };
   const { bg, fg, label } = map[status] ?? map.pending;
   return (
@@ -105,9 +105,27 @@ function DeadlinePill({ form, days, urgency }: { form: string; days: number; urg
   );
 }
 
+// ── Integrated insight state type ──────────────────────────────────────────
+
+interface InsightState {
+  loading: boolean;
+  text: string | null;
+  error: string | null;
+}
+
 // ── Upload card with expandable analysis ───────────────────────────────────
 
-function UploadCard({ upload }: { upload: DbUpload }) {
+function UploadCard({
+  upload,
+  latestBankUploadId,
+  insight,
+  onFindConnection,
+}: {
+  upload: DbUpload;
+  latestBankUploadId: string | null;
+  insight: InsightState;
+  onFindConnection: (gstUploadId: string) => void;
+}) {
   const [expanded, setExpanded] = useState(false);
 
   const analysis: DbAnalysis | undefined = upload.analyses?.[0];
@@ -169,27 +187,44 @@ function UploadCard({ upload }: { upload: DbUpload }) {
           <p style={{
             fontSize: 13, color: "var(--ink-2)", marginTop: 10,
             lineHeight: 1.5,
-            display: "-webkit-box",
-            WebkitLineClamp: 2,
-            WebkitBoxOrient: "vertical",
-            overflow: "hidden",
+            ...(expanded ? {} : {
+              display: "-webkit-box",
+              WebkitLineClamp: 2,
+              WebkitBoxOrient: "vertical",
+              overflow: "hidden",
+            }),
           }}>
             {gstSummary}
           </p>
         )}
 
-        {/* Action items count + expand button */}
+        {/* Action items count + confidence + expand button */}
         {upload.analysis_status === "complete" && analysis && (
           <div className="flex items-center justify-between" style={{ marginTop: 12 }}>
-            {todoItems.length > 0 && (
-              <span style={{
-                fontSize: 12, fontWeight: 600,
-                padding: "3px 10px", borderRadius: 999,
-                background: "var(--primary-50)", color: "var(--primary)",
-              }}>
-                {todoItems.length} action item{todoItems.length !== 1 ? "s" : ""}
-              </span>
-            )}
+            <div className="flex items-center gap-2 flex-wrap">
+              {todoItems.length > 0 && (
+                <span style={{
+                  fontSize: 12, fontWeight: 600,
+                  padding: "3px 10px", borderRadius: 999,
+                  background: "var(--primary-50)", color: "var(--primary)",
+                }}>
+                  {todoItems.length} action item{todoItems.length !== 1 ? "s" : ""}
+                </span>
+              )}
+              {gstAgent && gstAgent.confidence > 0 && (
+                <span title="AI confidence score" style={{
+                  display: "inline-flex", alignItems: "center", gap: 4,
+                  padding: "3px 8px", borderRadius: 999,
+                  background: "var(--bg-2)", color: "var(--ink-2)",
+                  fontSize: 11, fontWeight: 600,
+                }}>
+                  <svg width="10" height="10" viewBox="0 0 24 24" fill="currentColor" style={{ color: "var(--accent)" }}>
+                    <path d="M12 2l2.4 7.4H22l-6.2 4.5 2.4 7.4L12 17l-6.2 4.3 2.4-7.4L2 9.4h7.6z"/>
+                  </svg>
+                  {Math.round(gstAgent.confidence * 100)}% confidence
+                </span>
+              )}
+            </div>
             <button
               onClick={() => setExpanded((v) => !v)}
               style={{
@@ -214,13 +249,13 @@ function UploadCard({ upload }: { upload: DbUpload }) {
 
         {upload.analysis_status === "failed" && (
           <p style={{ fontSize: 13, color: "var(--danger)", marginTop: 8 }}>
-            Analysis failed. Try re-uploading this notice.
+            AI analysis failed. Try re-uploading this notice.
           </p>
         )}
 
         {upload.analysis_status === "pending" && (
           <p style={{ fontSize: 13, color: "var(--ink-3)", marginTop: 8 }}>
-            Analysis is in progress…
+            AI is analysing this notice…
           </p>
         )}
       </div>
@@ -261,22 +296,89 @@ function UploadCard({ upload }: { upload: DbUpload }) {
                 )}
               </div>
 
-              {/* Integrated insight */}
-              {result?.integrated_insight && (
-                <div style={{
-                  background: "var(--primary-50)",
-                  border: "1px solid #B4BDEA",
-                  borderRadius: "var(--radius-lg)",
-                  padding: "14px 16px",
-                }}>
-                  <div style={{ fontSize: 11, fontWeight: 700, color: "var(--primary)", textTransform: "uppercase", letterSpacing: "0.05em", marginBottom: 6 }}>
-                    Cross-domain insight
-                  </div>
-                  <p style={{ fontSize: 13, color: "var(--primary)", lineHeight: 1.6 }}>
-                    {result.integrated_insight}
-                  </p>
+              {/* Cross-domain: Find connection with bank data */}
+              <div style={{
+                background: latestBankUploadId ? "var(--primary-50)" : "var(--bg-2)",
+                border: `1px solid ${latestBankUploadId ? "#B4BDEA" : "var(--border)"}`,
+                borderRadius: "var(--radius-lg)",
+                padding: "14px 16px",
+              }}>
+                <div style={{ fontSize: 11, fontWeight: 700, color: latestBankUploadId ? "var(--primary)" : "var(--ink-3)", textTransform: "uppercase", letterSpacing: "0.05em", marginBottom: 8, display: "flex", alignItems: "center", gap: 6 }}>
+                  <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round">
+                    <path d="M10 13a5 5 0 007.54.54l3-3a5 5 0 00-7.07-7.07l-1.72 1.71" />
+                    <path d="M14 11a5 5 0 00-7.54-.54l-3 3a5 5 0 007.07 7.07l1.71-1.71" />
+                  </svg>
+                  Cross-reference with bank data
                 </div>
-              )}
+
+                {!latestBankUploadId ? (
+                  <p style={{ fontSize: 12, color: "var(--ink-3)", lineHeight: 1.5 }}>
+                    Upload a bank statement to find financial connections with this notice.
+                  </p>
+                ) : insight.text ? (
+                  <div>
+                    <p style={{ fontSize: 13, color: "var(--primary-700, #283280)", lineHeight: 1.6 }}>
+                      {insight.text}
+                    </p>
+                    <button
+                      onClick={() => onFindConnection(upload.id)}
+                      style={{
+                        marginTop: 10, fontSize: 11, color: "var(--ink-3)",
+                        background: "none", border: "none", cursor: "pointer",
+                        padding: 0, fontFamily: "inherit", textDecoration: "underline",
+                      }}
+                    >
+                      Re-run analysis
+                    </button>
+                  </div>
+                ) : insight.error ? (
+                  <div>
+                    <p style={{ fontSize: 12, color: "var(--danger)", marginBottom: 8 }}>{insight.error}</p>
+                    <button
+                      onClick={() => onFindConnection(upload.id)}
+                      className="btn-ghost"
+                      style={{ fontSize: 12, padding: "5px 12px" }}
+                    >
+                      Try again
+                    </button>
+                  </div>
+                ) : (
+                  <div>
+                    <p style={{ fontSize: 12, color: "var(--ink-2)", marginBottom: 10, lineHeight: 1.5 }}>
+                      AI will correlate this notice with your bank transactions to find specific financial connections.
+                    </p>
+                    <button
+                      onClick={() => onFindConnection(upload.id)}
+                      disabled={insight.loading}
+                      style={{
+                        display: "inline-flex", alignItems: "center", gap: 7,
+                        padding: "8px 14px",
+                        background: insight.loading ? "var(--bg-3)" : "var(--primary)",
+                        color: insight.loading ? "var(--ink-3)" : "#FCFAF4",
+                        border: "none", borderRadius: "var(--radius-md)",
+                        fontSize: 13, fontWeight: 600, cursor: insight.loading ? "not-allowed" : "pointer",
+                        fontFamily: "inherit", transition: "background 150ms",
+                      }}
+                    >
+                      {insight.loading ? (
+                        <>
+                          <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" style={{ animation: "spin 0.8s linear infinite" }}>
+                            <path d="M12 2a10 10 0 0110 10" />
+                          </svg>
+                          Analysing…
+                        </>
+                      ) : (
+                        <>
+                          <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round">
+                            <circle cx="11" cy="11" r="8" /><path d="M21 21l-4.35-4.35" />
+                          </svg>
+                          Find connection
+                        </>
+                      )}
+                    </button>
+                  </div>
+                )}
+              </div>
             </div>
           </div>
         </div>
@@ -288,19 +390,46 @@ function UploadCard({ upload }: { upload: DbUpload }) {
 // ── Main compliance page ───────────────────────────────────────────────────
 
 export default function CompliancePage() {
-  const [uploads, setUploads]   = useState<DbUpload[]>([]);
-  const [deadlines, setDeadlines] = useState<DeadlinesResponse | null>(null);
-  const [loading, setLoading]   = useState(true);
-  const [error, setError]       = useState<string | null>(null);
+  const [uploads, setUploads]         = useState<DbUpload[]>([]);
+  const [deadlines, setDeadlines]     = useState<DeadlinesResponse | null>(null);
+  const [loading, setLoading]         = useState(true);
+  const [error, setError]             = useState<string | null>(null);
+  const [latestBankUploadId, setLatestBankUploadId] = useState<string | null>(null);
+  const [insights, setInsights]       = useState<Record<string, InsightState>>({});
 
   useEffect(() => {
-    // Fetch deadlines and uploads in parallel
     getDeadlines().then(setDeadlines).catch(() => null);
     getUploadsWithAnalyses("gst_notice")
       .then(setUploads)
       .catch((e) => setError(e?.message ?? "Could not load notices."))
       .finally(() => setLoading(false));
+    // Load latest complete bank statement for cross-referencing
+    getUploadsWithAnalyses("bank_statement", 5).then((stmts) => {
+      const latest = stmts.find((s) => s.analysis_status === "complete");
+      if (latest) setLatestBankUploadId(latest.id);
+    }).catch(() => null);
   }, []);
+
+  async function handleFindConnection(gstUploadId: string) {
+    if (!latestBankUploadId) return;
+    setInsights((prev) => ({
+      ...prev,
+      [gstUploadId]: { loading: true, text: null, error: null },
+    }));
+    try {
+      const result = await queryIntegrated(gstUploadId, latestBankUploadId);
+      setInsights((prev) => ({
+        ...prev,
+        [gstUploadId]: { loading: false, text: result.integrated_insight, error: null },
+      }));
+    } catch (e) {
+      const msg = e instanceof Error ? e.message : "Cross-reference failed. Try again.";
+      setInsights((prev) => ({
+        ...prev,
+        [gstUploadId]: { loading: false, text: null, error: msg },
+      }));
+    }
+  }
 
   return (
     <div style={{ background: "var(--bg)", minHeight: "100vh" }}>
@@ -427,7 +556,13 @@ export default function CompliancePage() {
             ) : (
               <div className="space-y-4">
                 {uploads.map((upload) => (
-                  <UploadCard key={upload.id} upload={upload} />
+                  <UploadCard
+                    key={upload.id}
+                    upload={upload}
+                    latestBankUploadId={latestBankUploadId}
+                    insight={insights[upload.id] ?? { loading: false, text: null, error: null }}
+                    onFindConnection={handleFindConnection}
+                  />
                 ))}
               </div>
             )}

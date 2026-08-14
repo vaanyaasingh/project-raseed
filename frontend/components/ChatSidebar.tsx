@@ -81,10 +81,84 @@ function generateChatId() {
   return `chat_${Date.now()}_${Math.random().toString(36).slice(2, 6)}`;
 }
 
+// ── Markdown renderer (handles bold, italic, inline code, code blocks, bullets) ─
+
+function renderMarkdown(text: string): React.ReactNode[] {
+  const nodes: React.ReactNode[] = [];
+
+  // Split on code blocks first (```...```)
+  const codeBlockParts = text.split(/(```[\s\S]*?```)/g);
+
+  codeBlockParts.forEach((part, pi) => {
+    if (part.startsWith("```")) {
+      const inner = part.slice(3, -3).replace(/^\w+\n/, ""); // strip language tag
+      nodes.push(
+        <pre key={`cb-${pi}`} style={{
+          background: "rgba(0,0,0,0.08)", borderRadius: 6, padding: "8px 10px",
+          fontSize: 11.5, fontFamily: "monospace", overflowX: "auto",
+          margin: "6px 0", whiteSpace: "pre-wrap", wordBreak: "break-all",
+        }}>
+          {inner}
+        </pre>
+      );
+      return;
+    }
+
+    // Split into lines for bullet / paragraph handling
+    const lines = part.split("\n");
+    lines.forEach((line, li) => {
+      const isBullet = /^(\s*[-*•]\s)/.test(line);
+      const trimmed = isBullet ? line.replace(/^\s*[-*•]\s/, "") : line;
+
+      // Inline: bold (**x** or __x__), italic (*x* or _x_), inline code (`x`)
+      function inlineRender(src: string, key: string): React.ReactNode[] {
+        const result: React.ReactNode[] = [];
+        // Combined regex for **bold**, *italic*, `code`
+        const re = /(\*\*|__)(.+?)\1|(\*|_)(.+?)\3|`([^`]+)`/g;
+        let last = 0, m: RegExpExecArray | null;
+        while ((m = re.exec(src)) !== null) {
+          if (m.index > last) result.push(src.slice(last, m.index));
+          if (m[1]) result.push(<strong key={`${key}-b-${m.index}`}>{m[2]}</strong>);
+          else if (m[3]) result.push(<em key={`${key}-i-${m.index}`}>{m[4]}</em>);
+          else if (m[5]) result.push(
+            <code key={`${key}-c-${m.index}`} style={{
+              background: "rgba(0,0,0,0.08)", borderRadius: 3,
+              padding: "1px 4px", fontSize: "0.9em", fontFamily: "monospace",
+            }}>{m[5]}</code>
+          );
+          last = m.index + m[0].length;
+        }
+        if (last < src.length) result.push(src.slice(last));
+        return result;
+      }
+
+      const rendered = inlineRender(trimmed, `${pi}-${li}`);
+
+      if (isBullet) {
+        nodes.push(
+          <div key={`${pi}-${li}`} style={{ display: "flex", gap: 6, marginBottom: 2 }}>
+            <span style={{ flexShrink: 0, marginTop: 1 }}>•</span>
+            <span>{rendered}</span>
+          </div>
+        );
+      } else if (trimmed === "") {
+        // Blank line → small spacer (don't stack multiple <br>s)
+        if (li > 0 && lines[li - 1] !== "") nodes.push(<div key={`${pi}-${li}`} style={{ height: 6 }} />);
+      } else {
+        nodes.push(<span key={`${pi}-${li}`}>{rendered}{li < lines.length - 1 && "\n"}</span>);
+      }
+    });
+  });
+
+  return nodes;
+}
+
 // ── Message bubble ─────────────────────────────────────────────────────────────
 
 function MessageBubble({ msg }: { msg: InternalMessage }) {
   const isUser = msg.role === "user";
+  // Don't render an empty assistant bubble — the TypingIndicator handles that state
+  if (!isUser && msg.streaming && !msg.content) return null;
   return (
     <div style={{ display: "flex", justifyContent: isUser ? "flex-end" : "flex-start", marginBottom: 10 }}>
       <div
@@ -96,13 +170,16 @@ function MessageBubble({ msg }: { msg: InternalMessage }) {
           color: isUser ? "#FCFAF4" : "var(--ink)",
           fontSize: 13,
           lineHeight: 1.55,
-          whiteSpace: "pre-wrap",
           wordBreak: "break-word",
           border: isUser ? "none" : "1px solid var(--border)",
           boxShadow: isUser ? "0 1px 4px rgba(0,0,0,0.12)" : "none",
         }}
       >
-        {msg.content}
+        {isUser ? (
+          <span style={{ whiteSpace: "pre-wrap" }}>{msg.content}</span>
+        ) : (
+          renderMarkdown(msg.content)
+        )}
         {msg.streaming && (
           <span
             style={{
@@ -193,6 +270,7 @@ export function TopicBadge({ topic }: { topic: ChatTopic }) {
 
 export default function ChatSidebar() {
   const [open, setOpen] = useState(false);
+  const [expanded, setExpanded] = useState(false);
   const [topic, setTopic] = useState<ChatTopic>("compliance");
   const [messages, setMessages] = useState<InternalMessage[]>([]);
   const [input, setInput] = useState("");
@@ -412,14 +490,15 @@ export default function ChatSidebar() {
         <div
           style={{
             position: "fixed", bottom: 88, right: 24, zIndex: 9998,
-            width: "min(340px, calc(100vw - 32px))",
-            height: "min(560px, calc(100vh - 120px))",
+            width: expanded ? "min(680px, calc(100vw - 32px))" : "min(340px, calc(100vw - 32px))",
+            height: expanded ? "min(720px, calc(100vh - 120px))" : "min(560px, calc(100vh - 120px))",
             background: "var(--surface)",
             border: "1px solid var(--border)",
             borderRadius: "var(--radius-lg)",
             boxShadow: "0 8px 40px rgba(0,0,0,0.16)",
             display: "flex", flexDirection: "column", overflow: "hidden",
             animation: "chatSlideIn 200ms ease-out",
+            transition: "width 200ms ease, height 200ms ease",
           }}
         >
           {/* ── Header ─────────────────────────────────────────────────────── */}
@@ -438,6 +517,31 @@ export default function ChatSidebar() {
                 </div>
                 <div style={{ fontSize: 11, color: "var(--ink-3)" }}>{topicConfig.label} mode</div>
               </div>
+              {/* Expand button */}
+              <button
+                onClick={() => setExpanded((v) => !v)}
+                title={expanded ? "Collapse" : "Expand"}
+                style={{
+                  width: 28, height: 28, borderRadius: 8, border: "1px solid var(--border)",
+                  background: "var(--bg-2)", cursor: "pointer", display: "flex",
+                  alignItems: "center", justifyContent: "center", flexShrink: 0, color: "var(--ink-3)",
+                  transition: "background 120ms, color 120ms",
+                }}
+                onMouseEnter={(e) => { e.currentTarget.style.background = "var(--bg-3)"; e.currentTarget.style.color = "var(--ink)"; }}
+                onMouseLeave={(e) => { e.currentTarget.style.background = "var(--bg-2)"; e.currentTarget.style.color = "var(--ink-3)"; }}
+              >
+                {expanded ? (
+                  <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round">
+                    <polyline points="4 14 10 14 10 20" /><polyline points="20 10 14 10 14 4" />
+                    <line x1="10" y1="14" x2="3" y2="21" /><line x1="21" y1="3" x2="14" y2="10" />
+                  </svg>
+                ) : (
+                  <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round">
+                    <polyline points="15 3 21 3 21 9" /><polyline points="9 21 3 21 3 15" />
+                    <line x1="21" y1="3" x2="14" y2="10" /><line x1="3" y1="21" x2="10" y2="14" />
+                  </svg>
+                )}
+              </button>
               {/* New chat button */}
               <button
                 onClick={handleNewChat}
