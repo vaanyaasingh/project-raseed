@@ -304,7 +304,7 @@ function BottomNav() {
 
 export default function RootLayout({ children }: { children: React.ReactNode }) {
   const pathname = usePathname();
-  const isLoginPage = pathname.includes("/login");
+  const isLoginPage = pathname.includes("/login") || pathname.includes("/welcome");
 
   return (
     <html lang="en">

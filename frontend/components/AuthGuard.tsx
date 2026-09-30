@@ -7,7 +7,7 @@ import { supabase } from "@/lib/supabase";
 export default function AuthGuard({ children }: { children: React.ReactNode }) {
   const router = useRouter();
   const pathname = usePathname();
-  const isLoginPage = pathname.includes("/login");
+  const isLoginPage = pathname.includes("/login") || pathname.includes("/welcome");
 
   const [isLoading, setIsLoading] = useState(true);
   const [hasSession, setHasSession] = useState(false);
